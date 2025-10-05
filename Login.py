@@ -558,7 +558,7 @@ class LoginApp:
         self.crear_header("Recuperar Contraseña")
         
         # Campo de entrada
-        self.correo_entrada = self.crear_campo_entrada(self.main_frame, "Correo/Teléfono:")
+        self.correo_entrada = self.crear_campo_entrada(self.main_frame, "Correo electrónico:")
         
         # Botones
         self.crear_boton_moderno(self.main_frame, "ENVIAR PIN", self.enviar_pin)
@@ -581,10 +581,6 @@ class LoginApp:
                 credencial = "correo"
                 usuario_encontrado = usuario
                 break
-            if datos["telefono"] == correo:
-                credencial = "telefono"
-                usuario_encontrado = usuario
-                break
                 
         if usuario_encontrado and credencial == "correo":
             self.pin_generado = generar_pin()
@@ -596,18 +592,8 @@ class LoginApp:
                 self.ingresar_pin()
             else:
                 messagebox.showerror("Error", "No se pudo enviar el PIN por correo.")
-        elif usuario_encontrado and credencial == "telefono":
-            self.pin_generado = generar_pin()
-            self.pin_expira = datetime.now() + timedelta(minutes=2)
-            self.usuario_actual = usuario_encontrado
-            
-            if enviar_sms(self.usuarios[usuario_encontrado]["telefono"], f"Tu PIN para recuperar la contraseña es: {self.pin_generado}", "PIN de recuperación"):
-                messagebox.showinfo("PIN enviado", f"Se ha enviado un PIN al numero {credencial}.")
-                self.ingresar_pin()
-            else:
-                messagebox.showerror("Error", "No se pudo enviar el PIN por correo.")
         else:
-            messagebox.showerror("Error", "Correo o numero telefonico no encontrado.")
+            messagebox.showerror("Error", "Correo invalido o no encontrado.")
 
     def ingresar_pin(self):
         self.limpiar()
