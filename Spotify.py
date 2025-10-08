@@ -1,27 +1,3 @@
-#!/usr/bin/env python3
-"""
-Reproduce lo que pidas de YouTube (por voz o por texto).
-
-Modos:
-  - Por voz:    python youtube_voice_player.py --voice
-  - Por texto:  python youtube_voice_player.py "nombre de la canción o artista"
-  - Si no detecta VLC, abrirá el video en tu navegador.
-
-Requisitos (elige según el modo):
-  pip install yt-dlp
-  # Para reproducir en VLC (recomendado):
-  pip install python-vlc
-  # Para voz (opcional):
-  pip install SpeechRecognition pyaudio
-  # Windows: si pyaudio falla, prueba instalar un wheel precompilado.
-
-Además, instala VLC en tu sistema: https://www.videolan.org/
-
-Notas:
-- No descarga el audio: solo lo reproduce en streaming.
-- Idioma de reconocimiento de voz: español (Costa Rica). Cámbialo con --lang si quieres.
-"""
-
 import argparse
 import sys
 import time
@@ -42,27 +18,6 @@ except Exception:
     _SR_OK = False
 
 from yt_dlp import YoutubeDL  # type: ignore
-
-
-def ask_by_voice(lang: str = "es-CR") -> str:
-    if not _SR_OK:
-        raise RuntimeError(
-            "SpeechRecognition no está instalado. Ejecuta: pip install SpeechRecognition pyaudio"
-        )
-    r = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("🎤 Di qué quieres escuchar (silencio para cancelar)...")
-        r.adjust_for_ambient_noise(source, duration=0.6)
-        audio = r.listen(source, timeout=7, phrase_time_limit=10)
-    try:
-        query = r.recognize_google(audio, language=lang)
-        print(f"🗣️ Entendido: {query}")
-        return query
-    except sr.UnknownValueError:
-        raise RuntimeError("No te entendí. Intenta de nuevo o usa el modo por texto.")
-    except sr.RequestError as e:
-        raise RuntimeError(f"Error del servicio de reconocimiento: {e}")
-
 
 def search_youtube(query: str) -> dict:
     """Busca en YouTube y devuelve el dict del primer resultado.
@@ -87,7 +42,6 @@ def search_youtube(query: str) -> dict:
         if not required.get("webpage_url"):
             raise RuntimeError("No encontré resultados para esa búsqueda.")
         return required
-
 
 def play_with_vlc(stream_url: str, title: str) -> None:
     if not _VLC_OK:
@@ -116,11 +70,9 @@ def play_with_vlc(stream_url: str, title: str) -> None:
         print("\n⏹️ Detenido por el usuario.")
         player.stop()
 
-
 def open_in_browser(url: str, title: str) -> None:
     print("🌐 Abriendo en tu navegador por defecto…")
     webbrowser.open(url)
-
 
 def main():
     parser = argparse.ArgumentParser(description="Reproduce de YouTube por voz o por texto.")
@@ -134,18 +86,11 @@ def main():
     query_text: Optional[str] = " ".join(args.query).strip() if args.query else None
 
     if not query_text:
-        if args.voice:
-            try:
-                query_text = ask_by_voice(args.lang)
-            except Exception as e:
-                print(f"[Voz] {e}")
-                sys.exit(1)
-        else:
-            try:
-                query_text = input("¿Qué quieres escuchar en YouTube?: ").strip()
-            except EOFError:
-                print("No se recibió entrada.")
-                sys.exit(1)
+        try:
+            query_text = input("¿Qué quieres escuchar en YouTube?: ").strip()
+        except EOFError:
+            print("No se recibió entrada.")
+            sys.exit(1)
 
     if not query_text:
         print("No se proporcionó una consulta.")
