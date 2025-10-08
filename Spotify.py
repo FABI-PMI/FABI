@@ -2,8 +2,8 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-    client_id="bdfa9905e54446b5aeb083d0d45b3d52",
-    client_secret="eeab546554f74c37b7878e2bc358e26b",
+    client_id="fb40c1c259a64580b2508248ce4c75ac",
+    client_secret="68cc424b592f4635ad1ee5048b912e8e",
     redirect_uri="http://127.0.0.1:8888/callback",
     scope="user-modify-playback-state user-read-playback-state"
 ))
