@@ -56,7 +56,7 @@ class ColorSelectorApp:
         self.center_container.pack(expand=True, fill='both', padx=20, pady=20)
         
         # Título principal
-        self.title_label = tk.Label(self.center_container, text="Título", font=("Arial", 28, "bold"), 
+        self.title_label = tk.Label(self.center_container, text="Personalización", font=("Arial", 28, "bold"), 
                               bg='#a4244d', fg='#2c3e50')
         self.title_label.pack(pady=(10, 30))
         
