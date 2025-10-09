@@ -6,14 +6,28 @@ class ColorSelectorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Título")
-        self.root.geometry("600x850")
-        self.root.resizable(False, False)  # No permitir redimensionar
-        self.root.configure(bg='#a4244d')  # Color rojo inicial
+        
+        # Obtener el tamaño de la pantalla
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        
+        # Calcular el tamaño de la ventana (70% de la pantalla, con límites)
+        window_width = min(max(600, int(screen_width * 0.5)), 800)
+        window_height = min(max(750, int(screen_height * 0.8)), 900)
+        
+        # Calcular la posición para centrar la ventana
+        position_x = int((screen_width - window_width) / 2)
+        position_y = int((screen_height - window_height) / 2)
+        
+        # Establecer geometría y posición
+        self.root.geometry(f"{window_width}x{window_height}+{position_x}+{position_y}")
+        self.root.resizable(True, True)  # Permitir redimensionar
+        self.root.configure(bg='#a4244d')
         
         # Hacer la ventana scrolleable
-        main_canvas = tk.Canvas(root, bg='#a4244d', highlightthickness=0)  # Color rojo inicial
+        main_canvas = tk.Canvas(root, bg='#a4244d', highlightthickness=0)
         scrollbar = tk.Scrollbar(root, orient="vertical", command=main_canvas.yview)
-        self.scrollable_frame = tk.Frame(main_canvas, bg='#a4244d')  # Color rojo inicial
+        self.scrollable_frame = tk.Frame(main_canvas, bg='#a4244d')
         
         self.scrollable_frame.bind(
             "<Configure>",
@@ -30,23 +44,27 @@ class ColorSelectorApp:
         self.main_canvas = main_canvas
         
         # Variables
-        self.color_favorito = tk.StringVar(value="#a4244d")  # Color rojo inicial
+        self.color_favorito = tk.StringVar(value="#a4244d")
         self.tema_var = tk.StringVar(value="claro")
         self.cancion_var = tk.StringVar()
         
         # Rastrear cuando cambie el tema
         self.tema_var.trace('w', self.cambiar_tema)
         
+        # Container central para los elementos
+        self.center_container = tk.Frame(self.scrollable_frame, bg='#a4244d')
+        self.center_container.pack(expand=True, fill='both', padx=20, pady=20)
+        
         # Título principal
-        self.title_label = tk.Label(self.scrollable_frame, text="Título", font=("Arial", 28, "bold"), 
-                              bg='#a4244d', fg='#2c3e50')  # Fondo rojo, texto que se ajustará según tema
-        self.title_label.pack(pady=20)
+        self.title_label = tk.Label(self.center_container, text="Título", font=("Arial", 28, "bold"), 
+                              bg='#a4244d', fg='#2c3e50')
+        self.title_label.pack(pady=(10, 30))
         
         # ==================== SELECCIONE SU COLOR FAVORITO ====================
-        self.color_frame = tk.LabelFrame(self.scrollable_frame, text="Seleccione su color favorito",
+        self.color_frame = tk.LabelFrame(self.center_container, text="Seleccione su color favorito",
                                    font=("Arial", 13, "bold"), bg='#ffffff', 
                                    fg='#2c3e50', padx=25, pady=20, relief="groove", bd=3)
-        self.color_frame.pack(pady=10, padx=30, fill='x')
+        self.color_frame.pack(pady=15, padx=40, anchor='center')
         
         # Rueda de color estilo Paint
         self.canvas_color = tk.Canvas(self.color_frame, width=220, height=220, 
@@ -74,10 +92,10 @@ class ColorSelectorApp:
         self.color_label.pack(side='left', padx=5)
         
         # ==================== TEMA ====================
-        self.tema_frame = tk.LabelFrame(self.scrollable_frame, text="Tema", font=("Arial", 13, "bold"),
+        self.tema_frame = tk.LabelFrame(self.center_container, text="Tema", font=("Arial", 13, "bold"),
                                   bg='#ffffff', fg='#2c3e50', padx=25, pady=20,
                                   relief="groove", bd=3)
-        self.tema_frame.pack(pady=10, padx=30, fill='x')
+        self.tema_frame.pack(pady=15, padx=40, anchor='center')
         
         # Radio buttons para tema
         self.opciones_frame = tk.Frame(self.tema_frame, bg='#ffffff')
@@ -102,10 +120,10 @@ class ColorSelectorApp:
         self.rb_medio.grid(row=0, column=2, padx=25, pady=5)
         
         # ==================== MÚSICA ====================
-        self.musica_frame = tk.LabelFrame(self.scrollable_frame, text="Música", font=("Arial", 13, "bold"),
+        self.musica_frame = tk.LabelFrame(self.center_container, text="Música", font=("Arial", 13, "bold"),
                                     bg='#ffffff', fg='#2c3e50', padx=25, pady=20,
                                     relief="groove", bd=3)
-        self.musica_frame.pack(pady=10, padx=30, fill='x')
+        self.musica_frame.pack(pady=15, padx=40, anchor='center')
         
         # Etiqueta y campo de entrada
         self.musica_label = tk.Label(self.musica_frame, text="Nombre de la canción:",
@@ -135,8 +153,8 @@ class ColorSelectorApp:
         self.btn_iniciar.pack(pady=8)
         
         # Espacio final
-        self.espacio_label = tk.Label(self.scrollable_frame, text="", bg='#a4244d')  # Fondo rojo
-        self.espacio_label.pack(pady=10)
+        self.espacio_label = tk.Label(self.center_container, text="", bg='#a4244d')
+        self.espacio_label.pack(pady=20)
         
         # Aplicar el tema inicial
         self.cambiar_tema()
@@ -229,6 +247,7 @@ class ColorSelectorApp:
             self.root.configure(bg=color_hex)
             self.main_canvas.configure(bg=color_hex)
             self.scrollable_frame.configure(bg=color_hex)
+            self.center_container.configure(bg=color_hex)
             
             # Cambiar el fondo del título al mismo color
             self.title_label.configure(bg=color_hex)
@@ -245,24 +264,24 @@ class ColorSelectorApp:
             # Tema oscuro - Frames negros, texto blanco
             bg_frames = '#2d2d2d'
             fg_texto = '#ffffff'
-            fg_titulo = '#ffffff'  # Texto del título blanco
+            fg_titulo = '#ffffff'
             
         elif tema == "claro":
             # Tema claro - Frames blancos, texto negro
             bg_frames = '#ffffff'
             fg_texto = '#2c3e50'
-            fg_titulo = '#2c3e50'  # Texto del título negro
+            fg_titulo = '#2c3e50'
             
         else:  # medio
             # Tema término medio - Frames grises intermedios
             bg_frames = '#bdc3c7'
             fg_texto = '#2c3e50'
-            fg_titulo = '#1a1a1a'  # Texto del título negro oscuro
+            fg_titulo = '#1a1a1a'
         
-        # Aplicar color al texto del título (el fondo ya está con el color de la rueda)
+        # Aplicar color al texto del título
         self.title_label.configure(fg=fg_titulo)
         
-        # Aplicar SOLO a los frames, NO al fondo principal
+        # Aplicar SOLO a los frames
         self.color_frame.configure(bg=bg_frames, fg=fg_texto)
         self.tema_frame.configure(bg=bg_frames, fg=fg_texto)
         self.musica_frame.configure(bg=bg_frames, fg=fg_texto)
