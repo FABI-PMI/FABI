@@ -1,6 +1,6 @@
 """
 Ventana de personalización con preview del juego en tiempo real.
-Versión completa que integra todas las características originales.
+Versión completa que integra todas las características originales + centrado de ventana.
 """
 import tkinter as tk
 from tkinter import messagebox
@@ -38,34 +38,27 @@ class ColorSelectorApp:
         # Configuración de la ventana principal
         self.root = root
         self.root.title("Personalización - Sistema de Aldeas")
-        self.root.geometry("1150x850")
-        self.root.resizable(False, False)
-        self.root.title("Título")
         
-        # Color de fondo fijo para toda la aplicación
-        self.color_fondo_fijo = '#8a1c32'
-        self.root.configure(bg=self.color_fondo_fijo)
+        # ==================== SISTEMA DE CENTRADO DE VENTANA ====================
         # Obtener el tamaño de la pantalla
         screen_width = root.winfo_screenwidth()
         screen_height = root.winfo_screenheight()
         
-        # Calcular el tamaño de la ventana (70% de la pantalla, con límites)
-        window_width = min(max(600, int(screen_width * 0.5)), 800)
-        window_height = min(max(750, int(screen_height * 0.8)), 900)
+        # Definir tamaño de la ventana
+        window_width = 1150
+        window_height = 800
         
         # Calcular la posición para centrar la ventana
         position_x = int((screen_width - window_width) / 2)
         position_y = int((screen_height - window_height) / 2)
         
-        # Establecer geometría y posición
+        # Establecer geometría y posición centrada
         self.root.geometry(f"{window_width}x{window_height}+{position_x}+{position_y}")
-        self.root.resizable(True, True)  # Permitir redimensionar
-        self.root.configure(bg='#a4244d')
+        self.root.resizable(False, False)
         
-        # Hacer la ventana scrolleable
-        main_canvas = tk.Canvas(root, bg='#a4244d', highlightthickness=0)
-        scrollbar = tk.Scrollbar(root, orient="vertical", command=main_canvas.yview)
-        self.scrollable_frame = tk.Frame(main_canvas, bg='#a4244d')
+        # Color de fondo fijo para toda la aplicación
+        self.color_fondo_fijo = '#8a1c32'
+        self.root.configure(bg=self.color_fondo_fijo)
         
         # Contenedor principal
         main_container = tk.Frame(root, bg=self.color_fondo_fijo)
@@ -120,10 +113,6 @@ class ColorSelectorApp:
         self.color_favorito = tk.StringVar(value="#a4244d")  # Color inicial
         self.tema_var = tk.StringVar(value="claro")  # Tema inicial: claro
         self.cancion_var = tk.StringVar()  # Nombre de la canción
-        # Variables
-        self.color_favorito = tk.StringVar(value="#a4244d")
-        self.tema_var = tk.StringVar(value="claro")
-        self.cancion_var = tk.StringVar()
         
         # Detectar cambios en el tema para actualizar la interfaz
         self.tema_var.trace('w', self.cambiar_tema)
@@ -167,20 +156,6 @@ class ColorSelectorApp:
             bd=3
         )
         self.color_frame.pack(pady=10, padx=30, fill='x')
-        # Container central para los elementos
-        self.center_container = tk.Frame(self.scrollable_frame, bg='#a4244d')
-        self.center_container.pack(expand=True, fill='both', padx=20, pady=20)
-        
-        # Título principal
-        self.title_label = tk.Label(self.center_container, text="Personalización", font=("Arial", 28, "bold"), 
-                              bg='#a4244d', fg='#2c3e50')
-        self.title_label.pack(pady=(10, 30))
-        
-        # ==================== SELECCIONE SU COLOR FAVORITO ====================
-        self.color_frame = tk.LabelFrame(self.center_container, text="Seleccione su color favorito",
-                                   font=("Arial", 13, "bold"), bg='#ffffff', 
-                                   fg='#2c3e50', padx=25, pady=20, relief="groove", bd=3)
-        self.color_frame.pack(pady=15, padx=40, anchor='center')
         
         # Canvas para dibujar la rueda de colores
         self.canvas_color = tk.Canvas(
@@ -250,12 +225,6 @@ class ColorSelectorApp:
         )
         self.tema_frame.pack(pady=10, padx=30, fill='x')
         
-        # ==================== TEMA ====================
-        self.tema_frame = tk.LabelFrame(self.center_container, text="Tema", font=("Arial", 13, "bold"),
-                                  bg='#ffffff', fg='#2c3e50', padx=25, pady=20,
-                                  relief="groove", bd=3)
-        self.tema_frame.pack(pady=15, padx=40, anchor='center')
-        
         # Frame para organizar los radiobuttons horizontalmente
         self.opciones_frame = tk.Frame(self.tema_frame, bg='#ffffff')
         self.opciones_frame.pack()
@@ -321,12 +290,6 @@ class ColorSelectorApp:
         )
         self.musica_frame.pack(pady=10, padx=30, fill='x')
         
-        # ==================== MÚSICA ====================
-        self.musica_frame = tk.LabelFrame(self.center_container, text="Música", font=("Arial", 13, "bold"),
-                                    bg='#ffffff', fg='#2c3e50', padx=25, pady=20,
-                                    relief="groove", bd=3)
-        self.musica_frame.pack(pady=15, padx=40, anchor='center')
-        
         # Etiqueta para el campo de entrada
         self.musica_label = tk.Label(
             self.musica_frame, 
@@ -385,13 +348,7 @@ class ColorSelectorApp:
             width=18
         )
         self.btn_iniciar.pack(pady=8)
-        
-        # Espacio final
-        self.espacio_label = tk.Label(self.center_container, text="", bg='#a4244d')
-        self.espacio_label.pack(pady=20)
-        
-        # Aplicar el tema inicial
-        self.cambiar_tema()
+
     
     def dibujar_rueda_color(self):
         """
@@ -512,18 +469,6 @@ class ColorSelectorApp:
             # Actualizar el preview del juego si está disponible
             if GAME_AVAILABLE and self.game_preview:
                 self.update_game_palette()
-            # Cambiar el fondo de la ventana completa
-            self.root.configure(bg=color_hex)
-            self.main_canvas.configure(bg=color_hex)
-            self.scrollable_frame.configure(bg=color_hex)
-            self.center_container.configure(bg=color_hex)
-            
-            # Cambiar el fondo del título al mismo color
-            self.title_label.configure(bg=color_hex)
-            self.espacio_label.configure(bg=color_hex)
-            
-            # Aplicar el tema actual para ajustar el color del texto del título
-            self.cambiar_tema()
     
     def cambiar_tema(self, *args):
         """
@@ -539,33 +484,14 @@ class ColorSelectorApp:
         if tema == "oscuro":
             bg_frames = '#2d2d2d'  # Fondo gris oscuro
             fg_texto = '#ffffff'   # Texto blanco
-            # Tema oscuro - Frames negros, texto blanco
-            bg_frames = '#2d2d2d'
-            fg_texto = '#ffffff'
-            fg_titulo = '#ffffff'
-            
         elif tema == "claro":
             bg_frames = '#ffffff'  # Fondo blanco
             fg_texto = '#2c3e50'   # Texto gris oscuro
         else:  # tema == "medio"
             bg_frames = '#bdc3c7'  # Fondo gris medio
             fg_texto = '#2c3e50'   # Texto gris oscuro
-            # Tema claro - Frames blancos, texto negro
-            bg_frames = '#ffffff'
-            fg_texto = '#2c3e50'
-            fg_titulo = '#2c3e50'
-            
-        else:  # medio
-            # Tema término medio - Frames grises intermedios
-            bg_frames = '#bdc3c7'
-            fg_texto = '#2c3e50'
-            fg_titulo = '#1a1a1a'
         
         # Aplicar colores a todos los frames y widgets
-        # Aplicar color al texto del título
-        self.title_label.configure(fg=fg_titulo)
-        
-        # Aplicar SOLO a los frames
         self.color_frame.configure(bg=bg_frames, fg=fg_texto)
         self.tema_frame.configure(bg=bg_frames, fg=fg_texto)
         self.musica_frame.configure(bg=bg_frames, fg=fg_texto)
