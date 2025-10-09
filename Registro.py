@@ -24,6 +24,7 @@ class Registro:
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.root.configure(bg='#2D0A0A')
         self.root.resizable(False, False)
+        self.root.minsize(900, 650)
 
         # Variables
         self.imagen_perfil = None
@@ -65,9 +66,9 @@ class Registro:
         self.content_frame = tk.Frame(self.canvas, bg='#ffffff')
         self.canvas_window = self.canvas.create_window((0, 0), window=self.content_frame, anchor='nw')
         
-        self.content_frame.bind('<Configure>', self.actualizar_scroll)
+        self.content_frame.bind('<Configure>',lambda e: self.actualizar_scroll(   
+        scrollregion=self.canvas.bbox("all")))
         self.canvas.bind('<Configure>', self.centrar_contenido)
-        self.canvas.bind_all("<MouseWheel>", self.on_mousewheel)
         
         self.inner_frame = tk.Frame(self.content_frame, bg='#ffffff', padx=40, pady=30)
         self.inner_frame.pack(fill=tk.BOTH, expand=True)
@@ -317,19 +318,19 @@ class Registro:
             es_combobox=True,
             valores=['🇪🇸 Español', '🇺🇸 Inglés', '🇧🇷 Portugués', '🇫🇷 Francés']
         )
-        
-        # Tarjeta de crédito
+
+        #Tarjeta de crédito
         tk.Label(
             self.frame_paso2,
-            text="💳 Tarjeta de Crédito (Opcional)",
+            text="Si desea la versión Premium, puede resgstrarse ingresando su tarjeta de crédito (Opcional)",
             font=('Arial', 11, 'bold'),
             bg='#ffffff',
             fg='#374151'
         ).pack(anchor='w', pady=(25, 8))
-        
+
         frame_tarjeta = tk.Frame(self.frame_paso2, bg='#1F2937', bd=0)
         frame_tarjeta.pack(fill=tk.X, pady=15, ipady=25, ipadx=25)
-        
+
         tk.Label(
             frame_tarjeta,
             text="◼️",
@@ -339,7 +340,7 @@ class Registro:
             padx=18,
             pady=12
         ).pack(anchor='w', pady=(0, 12))
-        
+
         self.entry_tarjeta = tk.Entry(
             frame_tarjeta,
             textvariable=self.var_tarjeta,
@@ -349,17 +350,27 @@ class Registro:
             bd=0,
             insertbackground='white'
         )
-        self.entry_tarjeta.pack(fill=tk.X, pady=12)
+        self.entry_tarjeta.pack(fill=tk.X, pady=12, padx=10)
         self.entry_tarjeta.insert(0, "1234 5678 9012 3456")
         self.entry_tarjeta.config(fg='#6B7280')
-        self.entry_tarjeta.bind('<FocusIn>', lambda e: self.on_entry_click_tarjeta())
+        self.entry_tarjeta.bind('<FocusIn>',  lambda e: self.on_entry_click_tarjeta())
         self.entry_tarjeta.bind('<FocusOut>', lambda e: self.on_focusout_tarjeta())
-        self.entry_tarjeta.bind('<KeyRelease>', lambda e: self.actualizar_mensaje_version())
-        
-        # Mensaje premium/gratuito
+
+        # Validación y autoformato
+        vc = (self.root.register(lambda s: all(c.isdigit() or c == " " for c in s) or s == ""), "%P")
+        self.entry_tarjeta.config(validate="key", validatecommand=vc)
+
+        def _tarjeta_autofmt(*_):
+            raw = "".join(c for c in self.var_tarjeta.get() if c.isdigit())
+            g = " ".join(raw[i:i+4] for i in range(0, len(raw), 4))
+            if g != self.var_tarjeta.get():
+                self.var_tarjeta.set(g)
+        self.var_tarjeta.trace_add("write", _tarjeta_autofmt)
+
+        # Banner
         self.frame_version = tk.Frame(self.frame_paso2, bg='#3B82F6')
-        self.frame_version.pack(fill=tk.X, pady=25, ipady=25)
-        
+        self.frame_version.pack(fill=tk.X, pady=(10, 0), ipady=10)
+
         self.label_version = tk.Label(
             self.frame_version,
             text="🎮 Obtendrá la versión Gratuita de MiJuego",
@@ -368,7 +379,20 @@ class Registro:
             fg='white'
         )
         self.label_version.pack()
-        
+
+        #Luego define la función y conecta el trace (ahora sí existe label)
+        def _update_version_banner(*_):
+            raw = "".join(c for c in self.var_tarjeta.get() if c.isdigit())
+            es_premium = 13 <= len(raw) <= 19
+            color = '#F59E0B' if es_premium else '#3B82F6'
+            texto = "👑 Obtendrá la versión Premium de MiJuego" if es_premium else "🎮 Obtendrá la versión Gratuita de MiJuego"
+            self.frame_version.config(bg=color)
+            self.label_version.config(text=texto, bg=color)
+
+        self.var_tarjeta.trace_add("write", _update_version_banner)
+        _update_version_banner()  # estado inicial
+
+
         # Botones
         frame_botones = tk.Frame(self.frame_paso2, bg='#ffffff')
         frame_botones.pack(fill=tk.X, pady=25)
@@ -400,7 +424,15 @@ class Registro:
         ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
     
     # FUNCIONES AUXILIARES
-    
+    def _tarjeta_only_digits(self, s):
+        return all(c.isdigit() or c == " " for c in s) or s == ""
+
+    def _tarjeta_autofmt(self, *_):
+        raw = "".join(c for c in self.var_tarjeta.get() if c.isdigit())
+        g = " ".join(raw[i:i+4] for i in range(0, len(raw), 4))
+        if g != self.var_tarjeta.get():
+            self.var_tarjeta.set(g)
+
     def validar_solo_letras(self, texto):
         return texto.isalpha() or texto.replace(" ", "").isalpha() or texto == ""
     
@@ -678,7 +710,19 @@ class Registro:
         else:
             self.frame_paso1.pack_forget()
             self.frame_paso2.pack(fill=tk.BOTH, expand=True)
-    
+            
+        self.content_frame.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.canvas.yview_moveto(0.0)
+        try:
+            self._centrar_contenido_estable()
+        except Exception:
+            try:
+                self.centrar_contenido()
+            except Exception:
+                pass
+
+        
     def ir_a_ventana2(self):
         #validaciones
         if not self.var_nombre.get() or self.var_nombre.get() == "Nombre":
@@ -782,12 +826,17 @@ class Registro:
             return
         
         # Verificar si es premium
-        tarjeta = self.var_tarjeta.get()
-        es_premium = tarjeta and tarjeta != "1234 5678 9012 3456" and len(tarjeta) > 10
-        
-        # Crear usuario
+        raw_tarjeta = "".join(c for c in self.var_tarjeta.get() if c.isdigit())
+        es_premium = 13 <= len(raw_tarjeta) <= 19
+        if raw_tarjeta:
+            masked = ("•" * max(0, len(raw_tarjeta) - 4)) + raw_tarjeta[-4:]
+            masked_grouped = " ".join(masked[i:i+4] for i in range(0, len(masked), 4))
+        else:
+            masked_grouped = ""
+
+        #Crear usuario
         usuario = {
-            'nombre': self.var_nombre.get().strip(),
+            "nombre": self.var_nombre.get(),
             'apellido': self.var_apellido.get().strip(),
             'segundo_apellido': self.var_segundo_apellido.get().strip(),
             'correo': self.var_correo.get().strip(),
@@ -796,9 +845,9 @@ class Registro:
             'nacionalidad': self.var_nacionalidad.get().strip(),
             'fecha_nacimiento': fecha_str,
             'idioma': self.var_idioma.get().strip(),
-            'es_premium': bool(es_premium),
-            'tarjeta': tarjeta if es_premium else "",
-            'imagen_perfil': self.imagen_perfil or "",
+            "tarjeta": masked_grouped,
+            'es_premium': es_premium,
+            'tarjeta': masked_grouped if es_premium else "",
             'fecha_registro': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
         
@@ -808,18 +857,16 @@ class Registro:
         # Mensaje de éxito
         version = "Premium 👑" if es_premium else "Gratuita 🎮"
         messagebox.showinfo(
-            "¡Bienvenido a MiJuego!",
+            "¡Bienvenido a Avatars vs Rooks!",
             f"¡Tu cuenta ha sido creada exitosamente!\n\n"
             f"Usuario: {usuario['username']}\n"
             f"Versión: {version}\n\n"
-            f"¡Gracias por unirte a MiJuego! 🎮"
         )
         
         self.limpiar_formulario()
         self.mostrar_paso(1)
     
     def limpiar_formulario(self):
-        """Limpia todos los campos"""
         for var in [self.var_nombre, self.var_apellido, self.var_segundo_apellido,
                     self.var_correo, self.var_username, self.var_password,
                     self.var_confirmar_password, self.var_nacionalidad,
@@ -835,7 +882,6 @@ class Registro:
         self.crear_boton_agregar_foto()
     
     def activar_face_recognition(self):
-        """Activa el reconocimiento facial"""
         return register_face_gui()
     
 # FUNCIÓN PRINCIPAL
@@ -844,9 +890,9 @@ def main():
     app = Registro(root)
     root.mainloop()
 
-
 if __name__ == "__main__":
     print("=" * 50)
     print("🎮 Iniciando Sistema de Registro - MiJuego")
     print("=" * 50)
     main()
+

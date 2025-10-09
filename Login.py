@@ -9,6 +9,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 from twilio.rest import Client
+from PIL import Image, ImageTk
+
 
 ARCHIVO_USUARIOS = "usuarios.json"
 
@@ -82,9 +84,9 @@ class LoginApp:
         self.jugadores_login = []
         self.pin_generado = None
         self.pin_expira = None
-        self.bot_panel_creado = False  # Bandera para controlar la creación del panel del bot
+        self.bot_panel_creado = False
 
-        # Configurar la ventana - reducir tamaño
+        # Configurar la ventana
         self.root.title("Login - Juego de Memoria")
         self.root.geometry("450x550")
         self.root.resizable(False, False)
@@ -115,8 +117,8 @@ class LoginApp:
     def configurar_estilos(self):
         """Configura los colores y estilos de la aplicación"""
         self.colores = {
-            'primario': '#667eea',
-            'secundario': "#0d739e",
+            'primario': "#8A1C32",
+            'secundario': "#a10707",
             'acento': "#03a328",
             'fondo': '#f8f9fa',
             'texto': '#2c3e50',
@@ -131,7 +133,7 @@ class LoginApp:
         style = ttk.Style()
         style.theme_use('clam')
         
-        # Estilo para botones - reducir padding
+        # Estilo para botones
         style.configure(
             "Moderno.TButton",
             padding=(15, 8),
@@ -145,10 +147,8 @@ class LoginApp:
         
         # Simular gradiente con rectángulos
         for i in range(550):
-            # Gradiente de azul a púrpura
-            r1, g1, b1 = 255, 107, 107   # inicio (rojo claro)  -> #ff6b6b
-            r2, g2, b2 = 217, 4, 41      # fin (rojo intenso)   -> #d90429
-
+            r1, g1, b1 = 138, 28, 50
+            r2, g2, b2 = 97, 20, 35
             
             ratio = i / 550
             r = int(r1 + (r2 - r1) * ratio)
@@ -158,54 +158,39 @@ class LoginApp:
             color = f'#{r:02x}{g:02x}{b:02x}'
             self.canvas.create_line(0, i, 450, i, fill=color, width=1)
         
-        # Agregar formas decorativas - reducir tamaño
+        # Agregar formas decorativas
         self.agregar_formas_decorativas()
 
     def agregar_formas_decorativas(self):
-        """Agrega formas decorativas al fondo - reducidas"""
-        # Círculo decorativo 1 - reducido
+        """Agrega formas decorativas al fondo"""
         self.canvas.create_oval(40, 60, 100, 120, fill="#6bd3ff", stipple='gray25', outline='')
-        
-        # Rectángulo decorativo 2 - reducido
         self.canvas.create_rectangle(300, 120, 340, 160, fill='#4ecdc4', stipple='gray25', outline='')
-        
-        # Triángulo decorativo 3 - reducido
         self.canvas.create_polygon(60, 350, 100, 350, 80, 320, fill='#f9ca24', stipple='gray25', outline='')
-        
-        # Círculo decorativo 4 - reducido
         self.canvas.create_oval(280, 380, 330, 430, fill='#45b7d1', stipple='gray25', outline='')
 
     def crear_contenedor_principal_con_scroll(self):
         """Crea el contenedor principal con efecto glassmorphism y añade funcionalidad de scroll."""
-        # Frame que contendrá el Canvas y la Scrollbar
-        scroll_container_frame = tk.Frame(self.root, bg='white', relief='flat', bd=0)
+        scroll_container_frame = tk.Frame(self.root, bg='#C5C5C5', relief='flat', bd=0)
         scroll_container_frame.place(x=35, y=50, width=380, height=450)
 
-        # Crear un Canvas dentro del scroll_container_frame
-        self.scroll_canvas = tk.Canvas(scroll_container_frame, bg='white', highlightthickness=0)
+        self.scroll_canvas = tk.Canvas(scroll_container_frame, bg='#C5C5C5', highlightthickness=0)
         self.scroll_canvas.pack(side="left", fill="both", expand=True)
 
-        # Crear una Scrollbar vertical y vincularla al Canvas
         self.scrollbar = ttk.Scrollbar(scroll_container_frame, orient="vertical", command=self.scroll_canvas.yview)
         self.scrollbar.pack(side="right", fill="y")
 
-        # Configurar el Canvas para usar la Scrollbar
         self.scroll_canvas.configure(yscrollcommand=self.scrollbar.set)
         self.scroll_canvas.bind('<Configure>', self._on_canvas_configure)
         self.scroll_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
 
-        # Crear el main_frame dentro del Canvas
-        self.main_frame = tk.Frame(self.scroll_canvas, bg='white', relief='flat', bd=0)
+        self.main_frame = tk.Frame(self.scroll_canvas, bg='#C5C5C5', relief='flat', bd=0)
         self.main_frame_id = self.scroll_canvas.create_window((0, 0), window=self.main_frame, anchor="nw")
 
-        # Actualizar el scrollregion del Canvas cuando el tamaño del main_frame cambie
         self.main_frame.bind("<Configure>", self._on_frame_configure)
 
-        # Simular sombra - reducida
         shadow_frame = tk.Frame(self.root, bg='#000000', relief='flat', bd=0)
         shadow_frame.place(x=40, y=55, width=380, height=450)
         
-        # Enviar scroll_container_frame al frente
         scroll_container_frame.lift()
     
     def _on_frame_configure(self, event):
@@ -225,40 +210,36 @@ class LoginApp:
         """Limpia el contenido del frame principal"""
         for widget in self.main_frame.winfo_children():
             widget.destroy()
-        # Resetear la bandera del panel del bot
         self.bot_panel_creado = False
         self.root.update_idletasks()
         self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all"))
 
-    def crear_header(self, titulo, subtitulo=""):
-        """Crea el header con icono y títulos - reducido"""
-        # Icono del juego - reducido
-        icon_frame = tk.Frame(self.main_frame, bg='white')
-        icon_frame.pack(pady=5, fill='x')
-        
-        icon_canvas = tk.Canvas(icon_frame, width=50, height=50, bg=self.colores['acento'],
-                               highlightthickness=0, relief='flat')
-        icon_canvas.pack(pady=5)
-        
-        # Crear círculo para el icono - reducido
-        icon_canvas.create_oval(3, 3, 47, 47, fill=self.colores['acento'], outline='')
-        icon_canvas.create_text(25, 25, text="🧩", font=('Arial', 20), fill='white')
-        
-        # Título principal - reducido
-        titulo_label = tk.Label(self.main_frame, text=titulo, 
-                              font=('Segoe UI', 14, 'bold'),
-                              fg=self.colores['texto'], bg='white')
-        titulo_label.pack(pady=(5, 3), fill='x')
-        
-        # Subtítulo - reducido
+    def crear_header(self, titulo, subtitulo="", icon_size=128, bg="#C5C5C5"):
+        import os, tkinter as tk
+        from PIL import Image, ImageTk
+
+        icon_frame = tk.Frame(self.main_frame, bg=bg)
+        icon_frame.pack(pady=8, fill='x')
+
+        try:
+            logo_path = os.path.join(os.path.dirname(__file__), "Logo.jpg")
+            img = Image.open(logo_path).resize((icon_size, icon_size), Image.LANCZOS)
+            self._logo_img = ImageTk.PhotoImage(img)
+            tk.Label(icon_frame, image=self._logo_img, bg=bg).pack(pady=4)
+        except Exception as e:
+            print("No se pudo cargar Logo.jpg:", e)
+
+        tk.Label(self.main_frame, text=titulo,
+                font=('Segoe UI', 14, 'bold'),
+                fg=self.colores['texto'], bg=bg).pack(pady=(6, 3), fill='x')
+
         if subtitulo:
-            subtitulo_label = tk.Label(self.main_frame, text=subtitulo, 
-                                     font=('Segoe UI', 9),
-                                     fg=self.colores['texto_claro'], bg='white')
-            subtitulo_label.pack(pady=(0, 10), fill='x')
+            tk.Label(self.main_frame, text=subtitulo,
+                    font=('Segoe UI', 9),
+                    fg=self.colores['texto_claro'], bg=bg).pack(pady=(0, 12), fill='x')
 
     def crear_pestanas(self, pestanas, comando_callback):
-        """Crea pestañas modernas - reducidas"""
+        """Crea pestañas modernas"""
         tabs_frame = tk.Frame(self.main_frame, bg=self.colores['fondo'], relief='flat', bd=0)
         tabs_frame.pack(fill='x', padx=15, pady=(0, 10))
         
@@ -274,7 +255,6 @@ class LoginApp:
             btn.pack(side='left', fill='x', expand=True, padx=1)
             self.botones_pestana[pestana] = btn
             
-            # Efectos hover
             self.agregar_efecto_hover(btn, pestana)
 
     def agregar_efecto_hover(self, boton, pestana):
@@ -299,40 +279,85 @@ class LoginApp:
                 boton.config(bg=self.colores['fondo'], fg=self.colores['texto_claro'])
 
     def crear_campo_entrada(self, parent, label_text, is_password=False, placeholder=""):
-        """Crea un campo de entrada moderno - reducido"""
-        # Contenedor del campo - reducido
-        field_frame = tk.Frame(parent, bg='white')
+        """Crea un campo de entrada moderno"""
+        field_frame = tk.Frame(parent, bg='#C5C5C5')
         field_frame.pack(fill='x', padx=15, pady=4)
         
-        # Label - reducido
         label = tk.Label(field_frame, text=label_text, 
                         font=('Segoe UI', 8, 'bold'),
-                        fg=self.colores['texto'], bg='white', anchor='w')
+                        fg=self.colores['texto'], bg='#C5C5C5', anchor='w')
         label.pack(fill='x', pady=(0, 2))
         
-        # Entry con estilo moderno - reducido
-        entry = tk.Entry(field_frame, font=('Segoe UI', 10),
+        # Frame contenedor para entry y botón de ojo
+        entry_container = tk.Frame(field_frame, bg='#f8f9fa', relief='flat', bd=0)
+        entry_container.pack(fill='x')
+        
+        entry = tk.Entry(entry_container, font=('Segoe UI', 10),
                         relief='flat', bd=0, bg='#f8f9fa',
                         fg=self.colores['texto'], insertbackground=self.colores['primario'])
+        
         if is_password:
             entry.config(show="*")
-        
-        entry.pack(fill='x', ipady=8, ipadx=10)
-        
-        # Efectos de focus
-        def on_focus_in(e):
-            entry.config(bg='white', relief='solid', bd=2, highlightcolor=self.colores['primario'])
-        
-        def on_focus_out(e):
-            entry.config(bg='#f8f9fa', relief='flat', bd=0)
-        
-        entry.bind("<FocusIn>", on_focus_in)
-        entry.bind("<FocusOut>", on_focus_out)
+            entry.pack(side='left', fill='both', expand=True, ipady=8, ipadx=10)
+            
+            # Botón de ojo para mostrar/ocultar contraseña
+            eye_btn = tk.Button(entry_container, text="👁", font=('Segoe UI', 10),
+                              relief='flat', bd=0, bg='#f8f9fa',
+                              fg=self.colores['texto'], cursor='hand2',
+                              padx=10)
+            eye_btn.pack(side='right', fill='y')
+            
+            # Variable para rastrear el estado
+            show_password = {'visible': False}
+            
+            def toggle_password(event=None):
+                if show_password['visible']:
+                    entry.config(show="*")
+                    show_password['visible'] = False
+                else:
+                    entry.config(show="")
+                    show_password['visible'] = True
+            
+            def hide_password(event=None):
+                entry.config(show="*")
+                show_password['visible'] = False
+            
+            # Eventos del botón de ojo
+            eye_btn.bind("<ButtonPress-1>", toggle_password)
+            eye_btn.bind("<ButtonRelease-1>", hide_password)
+            
+            # Efectos de focus para el contenedor completo
+            def on_focus_in(e):
+                entry_container.config(bg='white', relief='solid', bd=2)
+                entry.config(bg='white')
+                eye_btn.config(bg='white')
+            
+            def on_focus_out(e):
+                entry_container.config(bg='#f8f9fa', relief='flat', bd=0)
+                entry.config(bg='#f8f9fa')
+                eye_btn.config(bg='#f8f9fa')
+            
+            entry.bind("<FocusIn>", on_focus_in)
+            entry.bind("<FocusOut>", on_focus_out)
+        else:
+            entry.pack(fill='x', ipady=8, ipadx=10)
+            
+            # Efectos de focus
+            def on_focus_in(e):
+                entry_container.config(bg='white', relief='solid', bd=2)
+                entry.config(bg='white')
+            
+            def on_focus_out(e):
+                entry_container.config(bg='#f8f9fa', relief='flat', bd=0)
+                entry.config(bg='#f8f9fa')
+            
+            entry.bind("<FocusIn>", on_focus_in)
+            entry.bind("<FocusOut>", on_focus_out)
         
         return entry
 
     def crear_boton_moderno(self, parent, texto, comando, estilo='primario', ancho_completo=True):
-        """Crea un botón con estilo moderno - reducido"""
+        """Crea un botón con estilo moderno"""
         if estilo == 'primario':
             bg_color = self.colores['primario']
             fg_color = 'white'
@@ -374,7 +399,7 @@ class LoginApp:
         return btn
 
     def mostrar_jugadores_conectados(self):
-        """Muestra los jugadores ya conectados - reducido"""
+        """Muestra los jugadores ya conectados"""
         if self.jugadores_login and not self.solo_uno:
             status_frame = tk.Frame(self.main_frame, bg='#d4edda', relief='flat', bd=0)
             status_frame.pack(fill='x', padx=15, pady=(0, 8))
@@ -395,18 +420,69 @@ class LoginApp:
     def menu_principal(self):
         self.limpiar()
         
-        # Header
+        # Contenedor principal con posición relativa
+        main_container = tk.Frame(self.main_frame, bg='#C5C5C5')
+        main_container.pack(fill='x', pady=8)
+        
+        # Botón FaceID en la esquina superior derecha (posición absoluta)
+        btn_face_container = tk.Frame(main_container, bg='#C5C5C5')
+        btn_face_container.place(relx=1.0, x=-15, y=0, anchor='ne')
+        
+        tk.Button(
+            btn_face_container,
+            text="👤",
+            font=('Arial', 18),
+            bg='#8A1C32',
+            fg='white',
+            bd=0,
+            width=3,
+            height=1,
+            cursor='hand2',
+            command=self.iniciar_login_facial
+        ).pack()
+        
+        tk.Label(
+            btn_face_container,
+            text="Face ID",
+            font=('Arial', 7, 'bold'),
+            bg='#C5C5C5',
+            fg='#2c3e50'
+        ).pack(pady=(2, 0))
+        
+        # Header centrado (logo y títulos)
+        header_content = tk.Frame(main_container, bg='#C5C5C5')
+        header_content.pack(expand=True)
+        
+        # Logo centrado
+        try:
+            logo_path = os.path.join(os.path.dirname(__file__), "Logo.jpg")
+            img = Image.open(logo_path).resize((128, 128), Image.LANCZOS)
+            self._logo_img = ImageTk.PhotoImage(img)
+            tk.Label(header_content, image=self._logo_img, bg='#C5C5C5').pack(pady=4)
+        except Exception as e:
+            print("No se pudo cargar Logo.jpg:", e)
+        
+        # Título centrado
         if self.solo_uno:
-            self.crear_header("LOGIN", "Ingresa para continuar")
+            tk.Label(header_content, text="Avatars VS Rooks",
+                    font=('Segoe UI', 14, 'bold'),
+                    fg=self.colores['texto'], bg='#C5C5C5').pack(pady=(6, 3))
+            tk.Label(header_content, text="Ingresa para continuar",
+                    font=('Segoe UI', 9),
+                    fg=self.colores['texto_claro'], bg='#C5C5C5').pack(pady=(0, 12))
         else:
-            self.crear_header("LOGIN", "TEST")
+            tk.Label(header_content, text="LOGIN",
+                    font=('Segoe UI', 14, 'bold'),
+                    fg=self.colores['texto'], bg='#C5C5C5').pack(pady=(6, 3))
+            tk.Label(header_content, text="TEST",
+                    font=('Segoe UI', 9),
+                    fg=self.colores['texto_claro'], bg='#C5C5C5').pack(pady=(0, 12))
         
         # Mostrar jugadores conectados
         self.mostrar_jugadores_conectados()
         
-
         # Contenedor de formularios
-        self.form_container = tk.Frame(self.main_frame, bg='white')
+        self.form_container = tk.Frame(self.main_frame, bg='#C5C5C5')
         self.form_container.pack(fill='both', expand=True)
         
         # Mostrar formulario de login por defecto
@@ -414,9 +490,9 @@ class LoginApp:
         
         # Botones inferiores
         self.crear_boton_moderno(self.main_frame, "¿Olvidaste tu contraseña?", 
-                               self.recuperar_contrasena, 'secundario')
+                               self.recuperar_contrasena, 'primario')
         self.crear_boton_moderno(self.main_frame, "Cancelar", 
-                               self.cancelar, 'peligro')
+                               self.cancelar, 'primario')
 
     def cambiar_pestana(self, pestana):
         """Cambia entre las pestañas de login y registro"""
@@ -436,28 +512,19 @@ class LoginApp:
         self.contrasena_entry = self.crear_campo_entrada(self.form_container, "Contraseña:", True)
         
         # Botón de login
-        self.crear_boton_moderno(self.form_container, "FaceID", self.iniciar_login_facial)
         self.crear_boton_moderno(self.form_container, "ENTRAR", self.verificar_login)
         
         # Focus en el primer campo
         self.usuario_entry.focus()
 
     def procesar_login_exitoso(self, nombre_detectado):
-        # Asegúrate de tener usuarios cargados
         if not self.usuarios:
             self.usuarios = cargar_usuarios()
 
-        # 1) Comprobar si el usuario existe en usuarios.json
         if nombre_detectado not in self.usuarios:
             messagebox.showerror("Error", f"'{nombre_detectado}' no existe en usuarios.json. Regístralo primero con Face ID.")
             return
 
-        # 2) (Opcional) Restringir a usuarios marcados solo_cara
-        # if not self.usuarios[nombre_detectado].get("solo_cara", False):
-        #     messagebox.showerror("Error", f"'{nombre_detectado}' no está habilitado para login facial.")
-        #     return
-
-        # 3) Reutilizar tu flujo de éxito
         if nombre_detectado not in self.jugadores_login:
             self.jugadores_login.append(nombre_detectado)
 
@@ -480,7 +547,6 @@ class LoginApp:
         self.nuevo_correo = self.crear_campo_entrada(self.form_container, "Correo electrónico:")
         self.nueva_contrasena = self.crear_campo_entrada(self.form_container, "Contraseña:", True)
         
-
         # Focus en el primer campo
         self.nuevo_usuario.focus()
 
@@ -533,10 +599,9 @@ class LoginApp:
             messagebox.showerror("Error", "Por favor, ingresa un correo electrónico válido.")
             return
         
-        if not (telefono and telefono.isdecimal()):   # '' -> False
+        if not (telefono and telefono.isdecimal()):
              messagebox.showerror("Error", "Por favor, ingresa un numero telefonico válido.")
              return
-
 
         # Registrar usuario
         self.usuarios[usuario] = {
@@ -632,7 +697,7 @@ class LoginApp:
         # Header
         self.crear_header("Nueva Contraseña")
         
-        # Campo de entrada
+        # Campo de entrada con toggle de contraseña
         self.contra_nueva = self.crear_campo_entrada(self.main_frame, "Nueva contraseña:", True)
         
         # Botones
@@ -676,6 +741,7 @@ class LoginApp:
             
         except ImportError:
             messagebox.showerror("Error", "El módulo de reconocimiento facial no está disponible.")
+            
 if __name__ == "__main__":
     root = tk.Tk()
     root.resizable(False, False)
