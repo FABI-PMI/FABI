@@ -322,7 +322,7 @@ class Registro:
         #Tarjeta de crédito
         tk.Label(
             self.frame_paso2,
-            text="💳 Tarjeta de Crédito (Opcional)",
+            text="Si desea la versión Premium, puede resgstrarse ingresando su tarjeta de crédito (Opcional)",
             font=('Arial', 11, 'bold'),
             bg='#ffffff',
             fg='#374151'
@@ -895,3 +895,4 @@ if __name__ == "__main__":
     print("🎮 Iniciando Sistema de Registro - MiJuego")
     print("=" * 50)
     main()
+
