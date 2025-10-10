@@ -57,13 +57,13 @@ class Registro:
         self._face_icon = None
         
         # Variables paso 1
-        self.var_nombre = tk.StringVar()
-        self.var_apellido = tk.StringVar()
-        self.var_segundo_apellido = tk.StringVar()
-        self.var_correo = tk.StringVar()
-        self.var_telefono = tk.StringVar()
-        self.var_username = tk.StringVar()
-        self.var_password = tk.StringVar()
+        self.var_nombre = tk.StringVar(self.root)
+        self.var_apellido = tk.StringVar(self.root)
+        self.var_segundo_apellido = tk.StringVar(self.root)
+        self.var_correo = tk.StringVar(self.root)
+        self.var_telefono = tk.StringVar(self.root)
+        self.var_username = tk.StringVar(self.root)
+        self.var_password = tk.StringVar(self.root)
         self.var_confirmar_password = tk.StringVar()
         
         # Variables paso 2
@@ -691,11 +691,22 @@ class Registro:
             messagebox.showerror("Error", f"Error al registrar Face ID: {str(e)}")
             return None
     
-    def ir_a_ventana2(self):
+    \
+def ir_a_ventana2(self):
         # Validaciones
         if not self.var_nombre.get().strip():
-            messagebox.showerror("Error", "Ingrese su nombre")
-            return
+            # Fallback: si el StringVar no se actualizó, intenta leer del Entry y sincronizarlo
+            try:
+                nombre_tmp = self.entry_nombre.get().strip()
+                if nombre_tmp:
+                    self.var_nombre.set(nombre_tmp)
+                else:
+                    messagebox.showerror("Error", "Ingrese su nombre")
+                    return
+            except Exception:
+                messagebox.showerror("Error", "Ingrese su nombre")
+                return
+
         
         if not self.var_apellido.get().strip():
             messagebox.showerror("Error", "Ingrese su apellido")
