@@ -12,7 +12,8 @@ from PIL import Image, ImageTk
 import cv2
 import pickle
 import numpy as np
-
+from cryptography.fernet import Fernet
+from encriptar import cargar_clave, generar_clave, ARCHIVO_SALIDA as ARCHIVO_USUARIOS_ENC
 
 ARCHIVO_USUARIOS = "usuarios.json"
 
@@ -54,23 +55,71 @@ def enviar_correo(destinatario, cuerpo, asunto="Mensaje del sistema"):
         return False
 
 def cargar_usuarios():
+    # Preferir archivo encriptado si existe
+    try:
+        if 'ARCHIVO_USUARIOS_ENC' in globals():
+            enc_path = ARCHIVO_USUARIOS_ENC
+        else:
+            enc_path = "usuarios.json.enc"
+        if os.path.exists(enc_path):
+            try:
+                clave = cargar_clave()
+            except FileNotFoundError:
+                messagebox.showerror("Error", "No se encontró la clave de cifrado (clave.key).")
+                return {}
+            fernet = Fernet(clave)
+            with open(enc_path, "rb") as f:
+                datos_encriptados = f.read()
+            try:
+                datos = fernet.decrypt(datos_encriptados).decode("utf-8")
+                return json.loads(datos)
+            except Exception as e:
+                print(f"Error desencriptando usuarios: {e}")
+                messagebox.showerror("Error", "No se pudo desencriptar la base de usuarios.")
+                return {}
+        # Compatibilidad: si no existe el .enc, intentar el JSON plano legado
+        if os.path.exists(ARCHIVO_USUARIOS):
+            try:
+                with open(ARCHIVO_USUARIOS, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"Error cargando usuarios (JSON): {e}")
+                return {}
+    except Exception as e:
+        print(f"Error cargando usuarios: {e}")
+        return {}
     if os.path.exists(ARCHIVO_USUARIOS):
-        try:
-            with open(ARCHIVO_USUARIOS, "r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"Error cargando usuarios: {e}")
-            return {}
+            try:
+                with open(ARCHIVO_USUARIOS, "r") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"Error cargando usuarios: {e}")
+                return {}
     return {}
 
 def guardar_usuarios(usuarios):
     try:
-        with open(ARCHIVO_USUARIOS, "w") as f:
-            json.dump(usuarios, f, indent=4)
+        try:
+            clave = cargar_clave()
+        except FileNotFoundError:
+            clave = generar_clave()
+        fernet = Fernet(clave)
+        datos_json = json.dumps(usuarios, ensure_ascii=False, indent=4)
+        datos_encriptados = fernet.encrypt(datos_json.encode("utf-8"))
+        # Guardar cifrado
+        enc_path = ARCHIVO_USUARIOS_ENC if "ARCHIVO_USUARIOS_ENC" in globals() else "usuarios.json.enc"
+        with open(enc_path, "wb") as f:
+            f.write(datos_encriptados)
+        # Opcional: eliminar el JSON en claro si existe
+        try:
+            if os.path.exists(ARCHIVO_USUARIOS):
+                os.remove(ARCHIVO_USUARIOS)
+        except Exception as e:
+            print(f"No se pudo eliminar {ARCHIVO_USUARIOS}: {e}")
         return True
-    except IOError as e:
+    except Exception as e:
         print(f"Error guardando usuarios: {e}")
-        messagebox.showerror("Error", "No se pudo guardar la información del usuario.")
+        messagebox.showerror("Error", "No se pudo guardar la información del usuario (cifrado).")
         return False
 
 def generar_pin():
