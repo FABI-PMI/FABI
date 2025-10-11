@@ -7,10 +7,13 @@ import random
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import os
 from twilio.rest import Client
 from PIL import Image, ImageTk
-
+import cv2
+import pickle
+import numpy as np
+from cryptography.fernet import Fernet
+from encriptar import cargar_clave, generar_clave, ARCHIVO_SALIDA as ARCHIVO_USUARIOS_ENC
 
 ARCHIVO_USUARIOS = "usuarios.json"
 
@@ -27,7 +30,7 @@ def enviar_sms(destinatario, cuerpo, asunto="Mensaje del sistema"):
             body=cuerpo)
         return True
     except Exception as e:
-        print(f"Error enviando el correo: {e}")
+        print(f"Error enviando el SMS: {e}")
         return False
     
 def enviar_correo(destinatario, cuerpo, asunto="Mensaje del sistema"):
@@ -52,33 +55,185 @@ def enviar_correo(destinatario, cuerpo, asunto="Mensaje del sistema"):
         return False
 
 def cargar_usuarios():
+    # Preferir archivo encriptado si existe
+    try:
+        if 'ARCHIVO_USUARIOS_ENC' in globals():
+            enc_path = ARCHIVO_USUARIOS_ENC
+        else:
+            enc_path = "usuarios.json.enc"
+        if os.path.exists(enc_path):
+            try:
+                clave = cargar_clave()
+            except FileNotFoundError:
+                messagebox.showerror("Error", "No se encontró la clave de cifrado (clave.key).")
+                return {}
+            fernet = Fernet(clave)
+            with open(enc_path, "rb") as f:
+                datos_encriptados = f.read()
+            try:
+                datos = fernet.decrypt(datos_encriptados).decode("utf-8")
+                return json.loads(datos)
+            except Exception as e:
+                print(f"Error desencriptando usuarios: {e}")
+                messagebox.showerror("Error", "No se pudo desencriptar la base de usuarios.")
+                return {}
+        # Compatibilidad: si no existe el .enc, intentar el JSON plano legado
+        if os.path.exists(ARCHIVO_USUARIOS):
+            try:
+                with open(ARCHIVO_USUARIOS, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"Error cargando usuarios (JSON): {e}")
+                return {}
+    except Exception as e:
+        print(f"Error cargando usuarios: {e}")
+        return {}
     if os.path.exists(ARCHIVO_USUARIOS):
-        try:
-            with open(ARCHIVO_USUARIOS, "r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"Error cargando usuarios: {e}")
-            return {}
+            try:
+                with open(ARCHIVO_USUARIOS, "r") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"Error cargando usuarios: {e}")
+                return {}
     return {}
 
 def guardar_usuarios(usuarios):
     try:
-        with open(ARCHIVO_USUARIOS, "w") as f:
-            json.dump(usuarios, f, indent=4)
+        try:
+            clave = cargar_clave()
+        except FileNotFoundError:
+            clave = generar_clave()
+        fernet = Fernet(clave)
+        datos_json = json.dumps(usuarios, ensure_ascii=False, indent=4)
+        datos_encriptados = fernet.encrypt(datos_json.encode("utf-8"))
+        # Guardar cifrado
+        enc_path = ARCHIVO_USUARIOS_ENC if "ARCHIVO_USUARIOS_ENC" in globals() else "usuarios.json.enc"
+        with open(enc_path, "wb") as f:
+            f.write(datos_encriptados)
+        # Opcional: eliminar el JSON en claro si existe
+        try:
+            if os.path.exists(ARCHIVO_USUARIOS):
+                os.remove(ARCHIVO_USUARIOS)
+        except Exception as e:
+            print(f"No se pudo eliminar {ARCHIVO_USUARIOS}: {e}")
         return True
-    except IOError as e:
+    except Exception as e:
         print(f"Error guardando usuarios: {e}")
-        messagebox.showerror("Error", "No se pudo guardar la información del usuario.")
+        messagebox.showerror("Error", "No se pudo guardar la información del usuario (cifrado).")
         return False
 
 def generar_pin():
     return str(random.randint(1000, 9999))
 
+def login_facial_directo():
+    """Realiza el login facial y devuelve el username reconocido"""
+    try:
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        
+        # Cargar todos los usuarios registrados con Face ID
+        usuarios = cargar_usuarios()
+        usuarios_faceid = {}
+        
+        # Cargar datos faciales de todos los usuarios
+        for username, datos in usuarios.items():
+            if datos.get('face_id') and datos.get('face_id_file'):
+                face_file = datos['face_id_file']
+                if os.path.exists(face_file):
+                    try:
+                        with open(face_file, 'rb') as f:
+                            face_data = pickle.load(f)
+                            usuarios_faceid[username] = face_data
+                    except Exception as e:
+                        print(f"Error cargando face data de {username}: {e}")
+        
+        if not usuarios_faceid:
+            messagebox.showerror("Error", "No hay usuarios registrados con Face ID")
+            return None
+        
+        # Iniciar cámara
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            messagebox.showerror("Error", "No se pudo acceder a la cámara")
+            return None
+        
+        usuario_reconocido = None
+        intentos = 0
+        max_intentos = 100  # 100 frames para intentar reconocer
+        
+        messagebox.showinfo("Face ID Login", "🔍 Buscando rostro...\n\nPresiona ESC para cancelar")
+        
+        while intentos < max_intentos:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+            
+            for (x, y, w, h) in faces:
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (138, 28, 50), 2)
+                face_roi = gray[y:y+h, x:x+w]
+                
+                # Comparar con todos los usuarios registrados
+                for username, face_data in usuarios_faceid.items():
+                    stored_faces = face_data['faces']
+                    
+                    # Comparar con las caras almacenadas
+                    for stored_face in stored_faces:
+                        try:
+                            # Redimensionar para comparar
+                            face_resized = cv2.resize(face_roi, (stored_face.shape[1], stored_face.shape[0]))
+                            
+                            # Calcular similitud usando correlación
+                            similarity = cv2.matchTemplate(face_resized, stored_face, cv2.TM_CCOEFF_NORMED)[0][0]
+                            
+                            # Si la similitud es alta, reconocer usuario
+                            if similarity > 0.6:  # Umbral de similitud
+                                usuario_reconocido = username
+                                cv2.putText(frame, f"Reconocido: {username}", (x, y-10),
+                                          cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                                break
+                        except:
+                            continue
+                    
+                    if usuario_reconocido:
+                        break
+                
+                if usuario_reconocido:
+                    break
+            
+            # Mostrar contador
+            cv2.putText(frame, f"Buscando... {intentos}/{max_intentos}", (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (138, 28, 50), 2)
+            
+            if usuario_reconocido:
+                cv2.putText(frame, "RECONOCIDO!", (10, 60),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
+            cv2.imshow('Face ID Login', frame)
+            
+            # Si se reconoció, esperar un momento y salir
+            if usuario_reconocido:
+                cv2.waitKey(1000)
+                break
+            
+            if cv2.waitKey(1) & 0xFF == 27:  # ESC para cancelar
+                break
+            
+            intentos += 1
+        
+        cap.release()
+        cv2.destroyAllWindows()
+        
+        return usuario_reconocido
+        
+    except Exception as e:
+        messagebox.showerror("Error", f"Error en Face ID: {str(e)}")
+        return None
+
 class LoginApp:
-    def __init__(self, root, callback_jugadores_listos, solo_uno=False):
+    def __init__(self, root):
         self.root = root
-        self.callback_jugadores_listos = callback_jugadores_listos
-        self.solo_uno = solo_uno
         self.usuarios = cargar_usuarios()
         self.usuario_actual = None
         self.jugadores_login = []
@@ -130,7 +285,7 @@ class LoginApp:
         }
         
         # Configurar estilo ttk
-        style = ttk.Style()
+        style = ttk.Style(self.root)   # ← importante: asociar al root vigente
         style.theme_use('clam')
         
         # Estilo para botones
@@ -215,17 +370,16 @@ class LoginApp:
         self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all"))
 
     def crear_header(self, titulo, subtitulo="", icon_size=128, bg="#C5C5C5"):
-        import os, tkinter as tk
-        from PIL import Image, ImageTk
-
         icon_frame = tk.Frame(self.main_frame, bg=bg)
         icon_frame.pack(pady=8, fill='x')
 
         try:
-            logo_path = os.path.join(os.path.dirname(__file__), "Logo.jpg")
+            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Logo.jpg')
             img = Image.open(logo_path).resize((icon_size, icon_size), Image.LANCZOS)
-            self._logo_img = ImageTk.PhotoImage(img)
-            tk.Label(icon_frame, image=self._logo_img, bg=bg).pack(pady=4)
+            self._logo_img = ImageTk.PhotoImage(img, master=self.root)
+            lbl_logo_tmp = tk.Label(icon_frame, image=self._logo_img, bg=bg)
+            lbl_logo_tmp.image = self._logo_img
+            lbl_logo_tmp.pack(pady=4)
         except Exception as e:
             print("No se pudo cargar Logo.jpg:", e)
 
@@ -237,46 +391,6 @@ class LoginApp:
             tk.Label(self.main_frame, text=subtitulo,
                     font=('Segoe UI', 9),
                     fg=self.colores['texto_claro'], bg=bg).pack(pady=(0, 12), fill='x')
-
-    def crear_pestanas(self, pestanas, comando_callback):
-        """Crea pestañas modernas"""
-        tabs_frame = tk.Frame(self.main_frame, bg=self.colores['fondo'], relief='flat', bd=0)
-        tabs_frame.pack(fill='x', padx=15, pady=(0, 10))
-        
-        self.botones_pestana = {}
-        
-        for i, pestana in enumerate(pestanas):
-            btn = tk.Button(tabs_frame, text=pestana,
-                          font=('Segoe UI', 8, 'bold'),
-                          bg=self.colores['fondo'] if i != 0 else self.colores['primario'],
-                          fg=self.colores['texto_claro'] if i != 0 else 'white',
-                          relief='flat', bd=0, padx=12, pady=5,
-                          command=lambda p=pestana: comando_callback(p))
-            btn.pack(side='left', fill='x', expand=True, padx=1)
-            self.botones_pestana[pestana] = btn
-            
-            self.agregar_efecto_hover(btn, pestana)
-
-    def agregar_efecto_hover(self, boton, pestana):
-        """Agrega efectos hover a los botones"""
-        def on_enter(e):
-            if boton['bg'] != self.colores['primario']:
-                boton.config(bg='#e9ecef')
-        
-        def on_leave(e):
-            if boton['bg'] != self.colores['primario']:
-                boton.config(bg=self.colores['fondo'])
-        
-        boton.bind("<Enter>", on_enter)
-        boton.bind("<Leave>", on_leave)
-
-    def activar_pestana(self, pestana_activa):
-        """Activa una pestaña específica"""
-        for nombre, boton in self.botones_pestana.items():
-            if nombre == pestana_activa:
-                boton.config(bg=self.colores['primario'], fg='white')
-            else:
-                boton.config(bg=self.colores['fondo'], fg=self.colores['texto_claro'])
 
     def crear_campo_entrada(self, parent, label_text, is_password=False, placeholder=""):
         """Crea un campo de entrada moderno"""
@@ -417,26 +531,68 @@ class LoginApp:
             
             tk.Label(status_frame, text="", bg='#d4edda').pack(pady=3)
 
+    def abrir_registro(self):
+        """Abre Registro en el mismo proceso y cierra Login después"""
+        import tkinter as tk
+        try:
+            from Registro import Registro
+        except Exception as e:
+            messagebox.showerror('Error', f'No se pudo importar Registro: {e}')
+            return
+        nueva = tk.Tk()
+        try:
+            Registro(nueva)
+        except Exception as e:
+            try:
+                nueva.destroy()
+            except Exception:
+                pass
+            messagebox.showerror('Error', f'No se pudo abrir Registro: {e}')
+            return
+        # cerrar login un instante después para evitar after/bindings residuales
+        try:
+            self.root.after(50, self.root.destroy)
+        except Exception:
+            pass
+        nueva.mainloop()
+
+
     def menu_principal(self):
         self.limpiar()
-        
-        # Contenedor principal con posición relativa
+
+        # Contenedor principal
         main_container = tk.Frame(self.main_frame, bg='#C5C5C5')
-        main_container.pack(fill='x', pady=8)
+        main_container.pack(fill='both', expand=True, pady=10)
         
-        # Botón FaceID en la esquina superior derecha (posición absoluta)
+        # Botón Registro arriba a la izquierda
+        btn_registro_container = tk.Frame(main_container, bg='#C5C5C5')
+        btn_registro_container.place(x=15, y=0)
+        
+        tk.Button(
+            btn_registro_container,
+            text="✏️ Registro",
+            font=('Segoe UI', 8, 'bold'),
+            bg=self.colores['primario'],
+            fg='white',
+            bd=0,
+            cursor='hand2',
+            padx=12,
+            pady=4,
+            command=self.abrir_registro
+        ).pack()
+        
+        # Botón Face ID arriba a la derecha
         btn_face_container = tk.Frame(main_container, bg='#C5C5C5')
         btn_face_container.place(relx=1.0, x=-15, y=0, anchor='ne')
         
         tk.Button(
             btn_face_container,
             text="👤",
-            font=('Arial', 18),
-            bg='#8A1C32',
+            font=('Arial', 16),
+            bg=self.colores['primario'],
             fg='white',
             bd=0,
-            width=3,
-            height=1,
+            width=2,
             cursor='hand2',
             command=self.iniciar_login_facial
         ).pack()
@@ -444,26 +600,26 @@ class LoginApp:
         tk.Label(
             btn_face_container,
             text="Face ID",
-            font=('Arial', 7, 'bold'),
+            font=('Arial', 6, 'bold'),
             bg='#C5C5C5',
             fg='#2c3e50'
-        ).pack(pady=(2, 0))
+        ).pack(pady=(1, 0))
         
-        # Header centrado (logo y títulos)
+        # Logo y títulos centrados
         header_content = tk.Frame(main_container, bg='#C5C5C5')
-        header_content.pack(expand=True)
+        header_content.pack(expand=True, pady=(40, 0))
         
-        # Logo centrado
         try:
-            logo_path = os.path.join(os.path.dirname(__file__), "Logo.jpg")
+            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Logo.jpg')
             img = Image.open(logo_path).resize((128, 128), Image.LANCZOS)
-            self._logo_img = ImageTk.PhotoImage(img)
-            tk.Label(header_content, image=self._logo_img, bg='#C5C5C5').pack(pady=4)
+            self._logo_img = ImageTk.PhotoImage(img, master=self.root)
+            lbl_logo_tmp = tk.Label(header_content, image=self._logo_img, bg='#C5C5C5')
+            lbl_logo_tmp.image = self._logo_img
+            lbl_logo_tmp.pack(pady=4)
         except Exception as e:
             print("No se pudo cargar Logo.jpg:", e)
         
-        # Título centrado
-        if self.solo_uno:
+        if True:
             tk.Label(header_content, text="Avatars VS Rooks",
                     font=('Segoe UI', 14, 'bold'),
                     fg=self.colores['texto'], bg='#C5C5C5').pack(pady=(6, 3))
@@ -474,7 +630,7 @@ class LoginApp:
             tk.Label(header_content, text="LOGIN",
                     font=('Segoe UI', 14, 'bold'),
                     fg=self.colores['texto'], bg='#C5C5C5').pack(pady=(6, 3))
-            tk.Label(header_content, text="TEST",
+            tk.Label(header_content, text="Inicio de Sesión",
                     font=('Segoe UI', 9),
                     fg=self.colores['texto_claro'], bg='#C5C5C5').pack(pady=(0, 12))
         
@@ -485,7 +641,7 @@ class LoginApp:
         self.form_container = tk.Frame(self.main_frame, bg='#C5C5C5')
         self.form_container.pack(fill='both', expand=True)
         
-        # Mostrar formulario de login por defecto
+        # Mostrar formulario de login
         self.mostrar_login()
         
         # Botones inferiores
@@ -493,17 +649,6 @@ class LoginApp:
                                self.recuperar_contrasena, 'primario')
         self.crear_boton_moderno(self.main_frame, "Cancelar", 
                                self.cancelar, 'primario')
-
-    def cambiar_pestana(self, pestana):
-        """Cambia entre las pestañas de login y registro"""
-        self.activar_pestana(pestana)
-        
-        # Limpiar contenedor de formularios
-        for widget in self.form_container.winfo_children():
-            widget.destroy()
-        
-        if pestana == "Iniciar Sesión":
-            self.mostrar_login()
 
     def mostrar_login(self):
         """Muestra el formulario de login"""
@@ -530,25 +675,8 @@ class LoginApp:
 
         messagebox.showinfo("Éxito", f"Sesión iniciada para: {nombre_detectado}")
 
-        if self.solo_uno:
+        if True:
             self.root.destroy()
-            self.callback_jugadores_listos(nombre_detectado)
-        elif len(self.jugadores_login) == 2:
-            self.root.destroy()
-            self.callback_jugadores_listos(self.jugadores_login[0], self.jugadores_login[1])
-        else:
-            self.menu_principal()
-
-    def mostrar_registro(self):
-        """Muestra el formulario de registro"""
-        # Campos de entrada
-        self.nuevo_usuario = self.crear_campo_entrada(self.form_container, "Usuario:")
-        self.nuevo_telefono = self.crear_campo_entrada(self.form_container, "Telefono:")
-        self.nuevo_correo = self.crear_campo_entrada(self.form_container, "Correo electrónico:")
-        self.nueva_contrasena = self.crear_campo_entrada(self.form_container, "Contraseña:", True)
-        
-        # Focus en el primer campo
-        self.nuevo_usuario.focus()
 
     def verificar_login(self):
         credencial = self.usuario_entry.get().strip()
@@ -557,64 +685,28 @@ class LoginApp:
         # Validar campos vacíos
         if not credencial or not contrasena:
             messagebox.showerror("Error", "Por favor, completa todos los campos.")
-            return self.menu_principal()
+            return
 
         # Verificación normal de usuarios
         paso = False
+        usuario_encontrado = None
+        
         for usuario, datos in self.usuarios.items():
             if (credencial == usuario or credencial == datos.get("correo") or credencial == datos.get("telefono")) and self.usuarios[usuario]["contrasena"] == contrasena:
                 paso = True
-                if credencial not in self.jugadores_login:
-                    self.jugadores_login.append(credencial)
-                    messagebox.showinfo("Éxito", f"Sesión iniciada para: {usuario}")
-
-                    if self.solo_uno:
-                        self.root.destroy()
-                        self.callback_jugadores_listos(usuario)
-                    elif len(self.jugadores_login) == 2:
-                        self.root.destroy()
-                        self.callback_jugadores_listos(self.jugadores_login[0], self.jugadores_login[1])
-                    else:
-                        self.menu_principal()
+                usuario_encontrado = usuario
+                break
         
-        if not paso:
-            messagebox.showerror("Error", "Credencial o contraseña incorrectos.")
+        if paso and usuario_encontrado:
+            if usuario_encontrado not in self.jugadores_login:
+                self.jugadores_login.append(usuario_encontrado)
+                messagebox.showinfo("Éxito", f"Sesión iniciada para: {usuario_encontrado}")
 
-    def registrar_usuario(self):
-        usuario = self.nuevo_usuario.get().strip()
-        telefono = self.nuevo_telefono.get().strip()
-        correo = self.nuevo_correo.get().strip()
-        contrasena = self.nueva_contrasena.get().strip()
+                if True:
+                    self.root.destroy()
 
-        # Validaciones
-        if not usuario or not correo or not contrasena or not telefono:
-            messagebox.showerror("Error", "Por favor, completa todos los campos.")
-            return
-
-        if usuario in self.usuarios:
-            messagebox.showerror("Error", "Este usuario ya existe.")
-            return
-
-        if "@" not in correo or "." not in correo:
-            messagebox.showerror("Error", "Por favor, ingresa un correo electrónico válido.")
-            return
-        
-        if not (telefono and telefono.isdecimal()):
-             messagebox.showerror("Error", "Por favor, ingresa un numero telefonico válido.")
-             return
-
-        # Registrar usuario
-        self.usuarios[usuario] = {
-            "telefono": telefono,
-            "correo": correo, 
-            "contrasena": contrasena, 
-        }
-        
-        if guardar_usuarios(self.usuarios):
-            messagebox.showinfo("Éxito", "Usuario registrado exitosamente.")
-            self.cambiar_pestana("Iniciar Sesión")
         else:
-            messagebox.showerror("Error", "No se pudo registrar el usuario. Inténtalo de nuevo.")
+            messagebox.showerror("Error", "Credencial o contraseña incorrectos.")
 
     def recuperar_contrasena(self):
         self.limpiar()
@@ -730,17 +822,25 @@ class LoginApp:
         self.root.destroy()
 
     def iniciar_login_facial(self):
+        """Inicia el proceso de login facial"""
         try:
-            from OpenCV import login_with_face_gui
+            # Cerrar temporalmente la ventana de login
+            self.root.withdraw()
             
-            def callback_facial(usuario_reconocido):
-                if usuario_reconocido:
-                    self.procesar_login_exitoso(usuario_reconocido)
+            # Realizar login facial
+            usuario_reconocido = login_facial_directo()
             
-            login_with_face_gui(callback_facial)
+            # Restaurar ventana de login
+            self.root.deiconify()
             
-        except ImportError:
-            messagebox.showerror("Error", "El módulo de reconocimiento facial no está disponible.")
+            if usuario_reconocido:
+                self.procesar_login_exitoso(usuario_reconocido)
+            else:
+                messagebox.showwarning("Face ID", "No se pudo reconocer el rostro")
+                
+        except Exception as e:
+            self.root.deiconify()
+            messagebox.showerror("Error", f"Error en Face ID: {str(e)}")
             
 if __name__ == "__main__":
     root = tk.Tk()
@@ -750,5 +850,5 @@ if __name__ == "__main__":
         print("Callback llamado con:", args)
         root.quit()
     
-    app = LoginApp(root, callback_test, solo_uno=True)
+    app = LoginApp(root)
     root.mainloop()
