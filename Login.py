@@ -7,7 +7,6 @@ import random
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from twilio.rest import Client
 from PIL import Image, ImageTk
 import cv2
 import pickle
@@ -16,22 +15,6 @@ from cryptography.fernet import Fernet
 from encriptar import cargar_clave, generar_clave, ARCHIVO_SALIDA as ARCHIVO_USUARIOS_ENC
 
 ARCHIVO_USUARIOS = "usuarios.json"
-
-def enviar_sms(destinatario, cuerpo, asunto="Mensaje del sistema"):
-    try:
-        account_sid = "ACcf2b1d430804735356bdc2ef2cbefa13"
-        auth_token = "f1d7fc33096b90ca520115eda8f4f273"
-
-        client = Client(account_sid, auth_token)
-
-        client.api.account.messages.create(
-            to=f"+506{destinatario}",
-            from_="+12768008011",
-            body=cuerpo)
-        return True
-    except Exception as e:
-        print(f"Error enviando el SMS: {e}")
-        return False
     
 def enviar_correo(destinatario, cuerpo, asunto="Mensaje del sistema"):
     remitente = "ohnono093@gmail.com"
