@@ -378,7 +378,7 @@ class ColorSelectorApp:
         
         self.btn_iniciar = tk.Button(
             self.botones_frame, 
-            text="Iniciar Juego",
+            text="Avanzar",
             bg='#e74c3c', 
             fg='white', 
             font=("Arial", 11, "bold"),
@@ -750,7 +750,7 @@ class ColorSelectorApp:
         return f"{minutes}:{secs:02d}"
     
     def iniciar_juego(self):
-        """Inicia el juego en una ventana independiente."""
+        """Inicia el juego en una ventana independiente y cierra la ventana de personalización."""
         if not GAME_AVAILABLE:
             messagebox.showerror(
                 "Error", 
@@ -766,22 +766,29 @@ class ColorSelectorApp:
             
             palette = generate_palette(color, tema)
             
-            game_window = tk.Toplevel(self.root)
+            # Ocultar la ventana de personalización en lugar de destruirla
+            self.root.withdraw()
+            
+            # Crear ventana independiente para el juego
+            game_window = tk.Toplevel()
             game_window.title("Sistema de Aldeas - Juego")
             game_window.geometry("500x700")
             game_window.resizable(False, False)
             
+            # Cuando se cierre la ventana del juego, cerrar toda la aplicación
+            game_window.protocol("WM_DELETE_WINDOW", lambda: self._cerrar_aplicacion(game_window))
+            
             game_frame = VillageGame(game_window, width=500, height=700, initial_palette=palette)
             game_frame.pack()
             
-            mensaje = f"Juego iniciado con:\n\nColor: {color}\nTema: {tema}"
-            if cancion:
-                mensaje += f"\nMúsica: {cancion}"
-            
-            messagebox.showinfo("Juego Iniciado", mensaje)
-            
         except Exception as e:
+            self.root.deiconify()  # Mostrar ventana de personalización si hay error
             messagebox.showerror("Error", f"No se pudo iniciar el juego:\n{e}")
+    
+    def _cerrar_aplicacion(self, game_window):
+        """Cierra la ventana del juego y toda la aplicación"""
+        game_window.destroy()
+        self.root.destroy()
     
     def _crear_panel_preview(self, parent):
         """Crea el panel derecho con el preview del juego."""
@@ -834,4 +841,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = ColorSelectorApp(root)
     root.mainloop()
-    #hola
