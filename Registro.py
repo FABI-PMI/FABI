@@ -643,22 +643,33 @@ class Registro:
             ventana_personalizacion = __import__('ventana personalizacion')
             ColorSelectorApp = getattr(ventana_personalizacion, 'ColorSelectorApp')
             
-            # Crear nueva ventana para personalización
+            # IMPORTANTE: Destruir la ventana de registro ANTES de crear la nueva
+            self.root.destroy()
+            
+            # Pequeña pausa para asegurar que la ventana anterior se destruyó completamente
+            import time
+            time.sleep(0.1)
+            
+            # Crear nueva ventana para personalización (nueva instancia limpia de Tk)
             ventana = tk.Tk()
             ColorSelectorApp(ventana)
-            
-            # Destruir ventana de registro con delay
-            self.root.after(50, self.root.destroy)
             ventana.mainloop()
             
         except Exception as e:
+            import traceback
+            error_detallado = traceback.format_exc()
             messagebox.showerror(
                 "Error", 
                 f"No se pudo cargar la ventana de personalización:\n{e}\n\n"
-                f"Verifica que el archivo 'ventana personalizacion.py' exista"
+                f"Detalles técnicos:\n{error_detallado[:200]}"
             )
-            # Si falla, volver al login
-            self.volver_a_login()
+            # Si falla, intentar volver al login
+            try:
+                self.volver_a_login()
+            except:
+                # Si todo falla, cerrar la aplicación
+                import sys
+                sys.exit(1)
     
     def activar_face_recognition(self):
         """Activa el reconocimiento facial"""
