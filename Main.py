@@ -4,7 +4,7 @@ Muestra splash screen y luego el sistema de login
 """
 import tkinter as tk
 from SplashScreen import SplashScreen
-from Registro import Registro
+from Login import LoginApp
 
 
 def main():
@@ -21,7 +21,7 @@ def main():
         login_window = tk.Toplevel(root)
         
         # Iniciar el login (sin callback, solo pasando la ventana)
-        Registro(login_window)
+        app = LoginApp(login_window)
         
         # Si el usuario cierra la ventana de login
         login_window.protocol("WM_DELETE_WINDOW", lambda: [login_window.destroy(), root.quit()])

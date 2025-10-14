@@ -563,14 +563,29 @@ class LoginApp:
             tk.Label(status_frame, text="", bg='#d4edda').pack(pady=3)
 
     def abrir_registro(self):
-        """Se ejecuta después de que el splash se cierra"""
-        from Registro import Registro  # Importar aquí para evitar ciclos
-        # Crear ventana de login
-        login_window = tk.Toplevel(self.root)
-        
-        # Iniciar el login (sin callback, solo pasando la ventana)
-        Registro(login_window)
-        
+        """Abre Registro en el mismo proceso y cierra Login después"""
+        import tkinter as tk
+        try:
+            from Registro import Registro
+        except Exception as e:
+            messagebox.showerror('Error', f'No se pudo importar Registro: {e}')
+            return
+        nueva = tk.Tk()
+        try:
+            Registro(nueva)
+        except Exception as e:
+            try:
+                nueva.destroy()
+            except Exception:
+                pass
+            messagebox.showerror('Error', f'No se pudo abrir Registro: {e}')
+            return
+        # cerrar login un instante después para evitar after/bindings residuales
+        try:
+            self.root.after(50, self.root.destroy)
+        except Exception:
+            pass
+        nueva.mainloop()
 
 
     def menu_principal(self):
