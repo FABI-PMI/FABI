@@ -1,6 +1,6 @@
 """
 Ventana de personalización con preview del juego en tiempo real.
-Versión completa que integra todas las características originales + centrado de ventana.
+Versión mejorada sin playsound (solo VLC y pygame)
 """
 import tkinter as tk
 from tkinter import messagebox
@@ -28,10 +28,12 @@ try:
 except ImportError:
     YT_DLP_AVAILABLE = False
 
-# Intentar múltiples opciones de reproducción
+# Sistema mejorado de detección de reproductores (SIN PLAYSOUND)
 AUDIO_PLAYER = None
 VLC_ERROR = None
+PYGAME_ERROR = None
 
+# Intentar VLC primero
 try:
     import os
     import sys
@@ -43,31 +45,57 @@ try:
     ]
     
     # Agregar la ruta de VLC al PATH si existe
+    vlc_found = False
     for vlc_path in vlc_paths:
         if os.path.exists(vlc_path):
             os.environ['PATH'] = vlc_path + ';' + os.environ.get('PATH', '')
-            print(f"Agregando VLC al PATH: {vlc_path}")
+            print(f"✓ VLC encontrado en: {vlc_path}")
+            vlc_found = True
             break
     
+    if not vlc_found:
+        print("⚠ VLC no encontrado en rutas por defecto")
+    
+    # Intentar importar el módulo VLC
     import vlc
-    # Verificar que VLC esté disponible sin mostrar ventana
+    
+    # Verificar que VLC funcione creando una instancia de prueba
+    test_instance = vlc.Instance('--no-video', '--quiet')
+    test_player = test_instance.media_player_new()
+    
     AUDIO_PLAYER = 'vlc'
-    print("✓ VLC detectado y funcionando")
+    print("✓ VLC detectado y funcionando correctamente")
+    
 except Exception as e:
     VLC_ERROR = str(e)
     print(f"✗ VLC no disponible: {e}")
+    AUDIO_PLAYER = None
+
+# Si VLC falla, intentar pygame
+if AUDIO_PLAYER is None:
     try:
-        from playsound import playsound
-        AUDIO_PLAYER = 'playsound'
-        print("✓ playsound detectado")
-    except:
-        try:
-            from pygame import mixer
-            AUDIO_PLAYER = 'pygame'
-            print("✓ pygame detectado")
-        except:
-            AUDIO_PLAYER = None
-            print("✗ No hay reproductor disponible")
+        from pygame import mixer
+        # Probar inicializar pygame
+        mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+        mixer.quit()  # Cerrar por ahora, se reiniciará después
+        
+        AUDIO_PLAYER = 'pygame'
+        print("✓ pygame detectado y funcionando")
+    except Exception as e:
+        PYGAME_ERROR = str(e)
+        print(f"✗ pygame no disponible: {e}")
+        AUDIO_PLAYER = None
+
+# Si ninguno funciona, mostrar advertencia
+if AUDIO_PLAYER is None:
+    print("=" * 60)
+    print("⚠ ADVERTENCIA: No hay reproductor de audio disponible")
+    print("=" * 60)
+    print("\nPara habilitar la reproducción de música, instala:")
+    print("1. VLC Media Player: https://www.videolan.org/vlc/")
+    print("   O")
+    print("2. pygame: pip install pygame")
+    print("=" * 60)
 
 import tempfile
 import os as os_module
@@ -130,10 +158,13 @@ class ColorSelectorApp:
         
         # Inicializar reproductor según disponibilidad
         if AUDIO_PLAYER == 'pygame':
+            from pygame import mixer
             mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+            print("✓ pygame inicializado")
         elif AUDIO_PLAYER == 'vlc':
             import vlc
-            self.vlc_instance = vlc.Instance('--no-video')
+            self.vlc_instance = vlc.Instance('--no-video', '--quiet')
+            print("✓ VLC inicializado")
         
         # Aplicar tema inicial
         self.cambiar_tema()
@@ -406,7 +437,6 @@ class ColorSelectorApp:
             color = '#%02x%02x%02x' % rgb
             
             angle_rad = math.radians(angle)
-            angle_rad_next = math.radians(angle + (360 / num_segments))
             
             x1 = center_x + radius * math.cos(angle_rad)
             y1 = center_y + radius * math.sin(angle_rad)
@@ -511,13 +541,11 @@ class ColorSelectorApp:
         try:
             if AUDIO_PLAYER == 'vlc' and self.vlc_player:
                 if self.is_paused:
-                    # Reanudar
                     self.vlc_player.play()
                     self.is_paused = False
                     self.btn_pausar.config(text="Pausar Música", bg='#3498db')
                     print("▶️ Música reanudada")
                 else:
-                    # Pausar
                     self.vlc_player.pause()
                     self.is_paused = True
                     self.btn_pausar.config(text="Reanudar Música", bg='#27ae60')
@@ -526,13 +554,11 @@ class ColorSelectorApp:
             elif AUDIO_PLAYER == 'pygame':
                 from pygame import mixer
                 if self.is_paused:
-                    # Reanudar
                     mixer.music.unpause()
                     self.is_paused = False
                     self.btn_pausar.config(text="Pausar Música", bg='#3498db')
                     print("▶️ Música reanudada")
                 else:
-                    # Pausar
                     mixer.music.pause()
                     self.is_paused = True
                     self.btn_pausar.config(text="Reanudar Música", bg='#27ae60')
@@ -559,20 +585,23 @@ class ColorSelectorApp:
         if not AUDIO_PLAYER:
             error_msg = "No hay reproductor de audio disponible.\n\n"
             if VLC_ERROR:
-                error_msg += f"VLC Error: {VLC_ERROR}\n\n"
+                error_msg += f"Error VLC: {VLC_ERROR}\n\n"
+            if PYGAME_ERROR:
+                error_msg += f"Error pygame: {PYGAME_ERROR}\n\n"
             error_msg += (
                 "Soluciones:\n"
-                "1. Instala VLC Media Player desde:\n"
-                "   https://www.videolan.org/vlc/\n\n"
-                "2. O instala: pip install playsound\n"
-                "3. O instala: pip install pygame"
+                "1. Instala VLC Media Player:\n"
+                "   https://www.videolan.org/vlc/\n"
+                "   Luego reinicia el programa\n\n"
+                "2. O instala pygame:\n"
+                "   pip install pygame"
             )
             messagebox.showerror("Error", error_msg)
             return
         
         # Mostrar qué reproductor se usará
-        player_names = {'vlc': 'VLC', 'playsound': 'playsound', 'pygame': 'pygame'}
-        print(f"Usando reproductor: {player_names.get(AUDIO_PLAYER, 'desconocido')}")
+        player_names = {'vlc': 'VLC', 'pygame': 'pygame'}
+        print(f"🎵 Usando reproductor: {player_names.get(AUDIO_PLAYER, 'desconocido')}")
         
         self._stop_music()
         self.btn_buscar.config(state='disabled', text="Buscando...")
@@ -590,6 +619,7 @@ class ColorSelectorApp:
         try:
             if AUDIO_PLAYER == 'vlc':
                 # VLC: reproducir stream directamente sin descargar
+                print("📥 Buscando stream de audio...")
                 ydl_opts = {
                     'format': 'bestaudio/best',
                     'quiet': True,
@@ -609,11 +639,13 @@ class ColorSelectorApp:
                     duration = entry.get('duration', 0)
                     stream_url = entry.get('url')
                 
+                print(f"✓ Canción encontrada: {title}")
                 self._play_vlc_stream(stream_url)
                 self.is_playing = True
                 
-            else:
-                # playsound o pygame: descargar archivo
+            elif AUDIO_PLAYER == 'pygame':
+                # pygame: descargar archivo
+                print("📥 Descargando audio...")
                 temp_dir = tempfile.gettempdir()
                 output_path = os_module.path.join(temp_dir, 'youtube_audio')
                 
@@ -645,22 +677,23 @@ class ColorSelectorApp:
                     else:
                         raise RuntimeError("No se pudo encontrar el archivo descargado")
                 
+                print(f"✓ Archivo descargado: {downloaded_file}")
                 self.current_song_file = downloaded_file
                 
-                if AUDIO_PLAYER == 'playsound':
-                    from playsound import playsound
-                    threading.Thread(target=lambda: playsound(downloaded_file), daemon=True).start()
-                    self.is_playing = True
-                    
-                elif AUDIO_PLAYER == 'pygame':
-                    mixer.music.load(downloaded_file)
-                    mixer.music.play()
-                    self.is_playing = True
+                from pygame import mixer
+                mixer.music.load(downloaded_file)
+                mixer.music.play()
+                self.is_playing = True
+                print("✓ Reproduciendo con pygame")
             
             self.root.after(0, lambda t=title, u=uploader, d=duration: self._on_music_ready(t, u, d))
             
         except Exception as ex:
+            import traceback
             error_msg = str(ex)
+            traceback_msg = traceback.format_exc()
+            print(f"✗ Error: {error_msg}")
+            print(traceback_msg)
             self.root.after(0, lambda msg=error_msg: self._on_music_error(msg))
     
     def _play_vlc_stream(self, stream_url):
@@ -668,37 +701,36 @@ class ColorSelectorApp:
         import vlc
         import time
         
-        print(f"Intentando reproducir stream: {stream_url[:100]}...")
+        print(f"🎵 Intentando reproducir con VLC...")
         
         if not self.vlc_instance:
-            self.vlc_instance = vlc.Instance('--no-video', '--verbose=2')
+            self.vlc_instance = vlc.Instance('--no-video', '--quiet')
         
         self.vlc_player = self.vlc_instance.media_player_new()
         media = self.vlc_instance.media_new(stream_url)
         self.vlc_player.set_media(media)
         
-        # Configurar volumen al máximo
+        # Configurar volumen
         self.vlc_player.audio_set_volume(100)
         
-        print("Iniciando reproducción...")
+        print("▶️ Iniciando reproducción...")
         self.vlc_player.play()
         
         # Esperar y verificar estado
         start = time.time()
         while time.time() - start < 5:
             state = self.vlc_player.get_state()
-            print(f"Estado VLC: {state}")
             
             if state == vlc.State.Playing:
                 print("✓ Reproduciendo correctamente")
                 return
             elif state == vlc.State.Error:
-                print("✗ Error en reproducción")
+                print("✗ Error en reproducción VLC")
                 raise RuntimeError("VLC no pudo reproducir el stream")
             
             time.sleep(0.5)
         
-        print(f"Estado final: {self.vlc_player.get_state()}")
+        print(f"⚠ Estado final VLC: {self.vlc_player.get_state()}")
     
     def _on_music_ready(self, title, uploader, duration):
         """Se ejecuta cuando la música está lista"""
@@ -726,6 +758,7 @@ class ColorSelectorApp:
                     self.vlc_player.stop()
                     self.vlc_player = None
                 elif AUDIO_PLAYER == 'pygame':
+                    from pygame import mixer
                     mixer.music.stop()
             except:
                 pass
