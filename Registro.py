@@ -628,12 +628,37 @@ class Registro:
         ventana.mainloop()
 
     def volver_a_personalizacion(self):
-        from ventana_personalizacion import ColorSelectorApp
-        ventana = tk.Tk()
-        ColorSelectorApp(ventana)
-        # destruir registro con un pequeño delay para dejar que se procesen 'after' pendientes
-        self.root.after(50, self.root.destroy)
-        ventana.mainloop()
+        """Abre la ventana de personalización después del registro exitoso"""
+        try:
+            # Importar usando el nombre exacto del archivo
+            import sys
+            import os
+            
+            # Asegurarse de que la carpeta actual está en el path
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            if current_dir not in sys.path:
+                sys.path.insert(0, current_dir)
+            
+            # Importar el módulo (Python reemplaza espacios por guiones bajos internamente)
+            ventana_personalizacion = __import__('ventana personalizacion')
+            ColorSelectorApp = getattr(ventana_personalizacion, 'ColorSelectorApp')
+            
+            # Crear nueva ventana para personalización
+            ventana = tk.Tk()
+            ColorSelectorApp(ventana)
+            
+            # Destruir ventana de registro con delay
+            self.root.after(50, self.root.destroy)
+            ventana.mainloop()
+            
+        except Exception as e:
+            messagebox.showerror(
+                "Error", 
+                f"No se pudo cargar la ventana de personalización:\n{e}\n\n"
+                f"Verifica que el archivo 'ventana personalizacion.py' exista"
+            )
+            # Si falla, volver al login
+            self.volver_a_login()
     
     def activar_face_recognition(self):
         """Activa el reconocimiento facial"""
@@ -668,7 +693,7 @@ class Registro:
             self.face_id_registered = True
             self.face_id_filename = resultado  # Solo guardamos el nombre del archivo
             
-                        # Recolorear el botón circular cuando Face ID está listo
+            # Recolorear el botón circular cuando Face ID está listo
             if self.face_canvas and self._face_oval and self._face_icon:
                 try:
                     self.face_canvas.itemconfig(self._face_oval, outline='#10B981')
@@ -689,8 +714,6 @@ class Registro:
             self.face_id_filename = None
             return False
     
-    # Modificación en la función register_face_direct del archivo Registro.py
-
     def register_face_direct(self, username):
         """Registra el rostro y devuelve el nombre del archivo"""
         try:
@@ -764,8 +787,7 @@ class Registro:
             traceback.print_exc()
             return None
     
-    \
-def ir_a_ventana2(self):
+    def ir_a_ventana2(self):
         # Validaciones
         if not self.var_nombre.get().strip():
             # Fallback: si el StringVar no se actualizó, intenta leer del Entry y sincronizarlo
@@ -841,6 +863,7 @@ def ir_a_ventana2(self):
     
     def volver_a_paso1(self):
         self.mostrar_paso(1)
+    
     def _circularize(self, img, size=(100, 100)):
         """Devuelve la imagen recortada en círculo con alfa."""
         img = img.convert('RGBA').resize(size, Image.LANCZOS)
@@ -880,8 +903,6 @@ def ir_a_ventana2(self):
         except Exception as e:
             messagebox.showerror('Error', f'No se pudo cargar la imagen:\n{e}')
 
-
-    
     def registrar_usuario(self):
         # Validar campos paso 2
         if not self.var_nacionalidad.get():
@@ -902,8 +923,8 @@ def ir_a_ventana2(self):
         
         # Crear usuario (SIN GUARDAR DATOS NUMPY - solo referencias)
         username = self.var_username.get().strip()
-                # Codificar foto de perfil en base64 (PNG con transparencia) si se seleccionó
-                # Vincular FaceID si existe el archivo aunque no se haya re-capturado en esta sesión
+        
+        # Vincular FaceID si existe el archivo aunque no se haya re-capturado en esta sesión
         if not self.face_id_registered:
             ruta = buscar_face_file(username)
             if ruta:
@@ -934,7 +955,7 @@ def ir_a_ventana2(self):
             'es_premium': bool(es_premium),
             'tarjeta': tarjeta if es_premium else "",
             'face_id': self.face_id_registered,
-            'face_id_file': self.face_id_filename if self.face_id_registered else None,  # Solo el nombre del archivo
+            'face_id_file': self.face_id_filename if self.face_id_registered else None,
             'foto_perfil_b64': avatar_b64,
             'fecha_registro': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
@@ -963,10 +984,11 @@ def ir_a_ventana2(self):
                 f"\n¡Gracias por unirte! 🎮"
             )
             
-            # Cerrar registro y abrir login
+            # Cerrar registro y abrir ventana de personalización
             self.volver_a_personalizacion()
         else:
             messagebox.showerror("Error", "No se pudo guardar el usuario")
+
 
 # FUNCIÓN PRINCIPAL
 def main():
