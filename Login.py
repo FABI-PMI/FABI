@@ -707,7 +707,16 @@ class LoginApp:
         messagebox.showinfo("Éxito", f"Sesión iniciada para: {nombre_detectado}")
 
         if True:
-            self.root.destroy()
+            self.abrir_principal(nombre_detectado)
+
+
+    def abrir_principal(self, usuario):
+        from VentanaPrincipal import VillageGameWindow as VP
+        VentanaClase = VP
+        VentanaClase()
+        # destruir registro con un pequeño delay para dejar que se procesen 'after' pendientes
+        self.root.after(50, self.root.destroy)
+
 
     def verificar_login(self):
         credencial = self.usuario_entry.get().strip()
@@ -734,7 +743,8 @@ class LoginApp:
                 messagebox.showinfo("Éxito", f"Sesión iniciada para: {usuario_encontrado}")
 
                 if True:
-                    self.root.destroy()
+                    self.abrir_principal(usuario_encontrado)
+
 
         else:
             messagebox.showerror("Error", "Credencial o contraseña incorrectos.")
