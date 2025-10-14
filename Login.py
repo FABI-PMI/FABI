@@ -125,30 +125,61 @@ def guardar_usuarios(usuarios):
 def generar_pin():
     return str(random.randint(1000, 9999))
 
+import os, pickle
+
+def cargar_facebank_desde_carpeta(carpeta=None):
+    """
+    Lee todos los *.pkl de face_data y devuelve:
+    { username: {"faces": [np.array, ...], ...}, ... }
+    Acepta tanto dicts con clave 'faces' como listas de caras.
+    """
+    if carpeta is None:
+        carpeta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "face_data")
+
+    facebank = {}
+    if not os.path.isdir(carpeta):
+        return facebank
+
+    for fname in os.listdir(carpeta):
+        if not fname.endswith(".pkl"):
+            continue
+        ruta = os.path.join(carpeta, fname)
+        try:
+            with open(ruta, "rb") as f:
+                data = pickle.load(f)
+            base = os.path.splitext(fname)[0]            # p.ej. "marco_face"
+            username = base[:-5] if base.endswith("_face") else base  # "marco"
+
+            # Normaliza estructura
+            if isinstance(data, dict) and "faces" in data:
+                caras = data["faces"]
+            elif isinstance(data, list):
+                caras = data
+                data = {"faces": caras}
+            else:
+                # Estructura desconocida; intenta ignorar
+                continue
+
+            # Asegura lista de np.array
+            if not isinstance(caras, list) or len(caras) == 0:
+                continue
+            facebank[username] = data
+        except Exception as e:
+            print(f"No se pudo leer {ruta}: {e}")
+            continue
+    return facebank
+
 def login_facial_directo():
     """Realiza el login facial y devuelve el username reconocido"""
     try:
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         
-        # Cargar todos los usuarios registrados con Face ID
-        usuarios = cargar_usuarios()
-        usuarios_faceid = {}
-        
-        # Cargar datos faciales de todos los usuarios
-        for username, datos in usuarios.items():
-            if datos.get('face_id') and datos.get('face_id_file'):
-                face_file = datos['face_id_file']
-                if os.path.exists(face_file):
-                    try:
-                        with open(face_file, 'rb') as f:
-                            face_data = pickle.load(f)
-                            usuarios_faceid[username] = face_data
-                    except Exception as e:
-                        print(f"Error cargando face data de {username}: {e}")
-        
+        # === NUEVO: cargar facebank directamente desde face_data/ ===
+        usuarios_faceid = cargar_facebank_desde_carpeta()
         if not usuarios_faceid:
-            messagebox.showerror("Error", "No hay usuarios registrados con Face ID")
+            messagebox.showerror("Error", "No hay datos Face ID en la carpeta face_data/")
             return None
+
         
         # Iniciar cámara
         cap = cv2.VideoCapture(0)
@@ -160,7 +191,7 @@ def login_facial_directo():
         intentos = 0
         max_intentos = 100  # 100 frames para intentar reconocer
         
-        messagebox.showinfo("Face ID Login", "🔍 Buscando rostro...\n\nPresiona ESC para cancelar")
+        messagebox.showinfo("Face ID Login", "🔍 Se abrira la camara para detectar el rostro...")
         
         while intentos < max_intentos:
             ret, frame = cap.read()

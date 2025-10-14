@@ -13,6 +13,18 @@ import base64
 import numpy as np
 from tkcalendar import DateEntry
 
+# --- helpers de FaceID (pendiente hasta completar registro) ---
+def buscar_face_file(username: str):
+    """
+    Devuelve la ruta face_data/<username>_face.pkl si existe; en caso contrario None.
+    """
+    import os
+    if not username:
+        return None
+    carpeta = 'face_data'
+    ruta = os.path.join(carpeta, f'{username}_face.pkl')
+    return ruta if os.path.exists(ruta) else None
+
 class Registro:
     def __init__(self, root, callback_abrir_login=None):
         self.root = root
@@ -82,6 +94,37 @@ class Registro:
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f'{width}x{height}+{x}+{y}')
     
+    def _sincronizar_face_id_con_archivo(self, username=None, actualizar_ui=True):
+        """
+        Si existe face_data/<username>_face.pkl, marca el FaceID como registrado en memoria
+        y actualiza los elementos de UI correspondientes.
+        """
+        if username is None:
+            username = (self.var_username.get() or "").strip()
+
+        ruta = buscar_face_file(username) if username else None
+        self.face_id_registered = bool(ruta)
+        self.face_id_filename = ruta if ruta else None
+
+        if actualizar_ui:
+            # Actualiza el estado visual del botón/etiqueta (igual que cuando registras FaceID)
+            try:
+                if self.face_id_registered:
+                    self.label_face_status.config(text='✓ OK', fg='#10B981')
+                    if hasattr(self, 'btn_face_recognition') and self.btn_face_recognition:
+                        self.btn_face_recognition.config(bg='#10B981', activebackground='#10B981')
+                    # Si tienes un canvas/íconos de FaceID, intenta recolorearlos:
+                    if self.face_canvas and self._face_oval and self._face_icon:
+                        self.face_canvas.itemconfig(self._face_oval, outline='#10B981')
+                        self.face_canvas.itemconfig(self._face_icon, fill='#10B981')
+                else:
+                    self.label_face_status.config(text='Face ID', fg='#2c3e50')
+                    if hasattr(self, 'btn_face_recognition') and self.btn_face_recognition:
+                        self.btn_face_recognition.config(bg=self.colores['primario'],
+                                                        activebackground=self.colores['primario'])
+            except Exception:
+                pass
+
     def crear_interfaz(self):
         # Canvas principal con gradiente (igual que Login)
         self.canvas = tk.Canvas(self.root, width=450, height=550, highlightthickness=0)
@@ -392,6 +435,7 @@ class Registro:
         self.entry_correo = self.crear_campo_entrada(self.frame_paso1, "Correo:", variable=self.var_correo)
         self.entry_telefono = self.crear_campo_entrada(self.frame_paso1, "Teléfono:", variable=self.var_telefono)
         self.entry_username = self.crear_campo_entrada(self.frame_paso1, "Usuario:", variable=self.var_username)
+        self.entry_username.bind('<FocusOut>', lambda e: self._sincronizar_face_id_con_archivo())
         self.entry_pass1 = self.crear_campo_entrada(self.frame_paso1, "Contraseña:", is_password=True, variable=self.var_password)
         self.entry_pass2 = self.crear_campo_entrada(self.frame_paso1, "Confirmar:", is_password=True, variable=self.var_confirmar_password)
         
@@ -442,6 +486,13 @@ class Registro:
                 font=('Segoe UI', 8, 'bold'),
                 fg=self.colores['texto'], bg='#C5C5C5', anchor='w').pack(fill='x', pady=(0, 2))
         
+        from tkcalendar import DateEntry
+        from datetime import date
+        from dateutil.relativedelta import relativedelta
+        
+        hoy = date.today()
+        hace_5_anios = hoy - relativedelta(years=5)
+
         self.date_entry = DateEntry(
             field_frame,
             width=30,
@@ -450,11 +501,10 @@ class Registro:
             borderwidth=0,
             font=('Segoe UI', 9),
             date_pattern='dd/mm/yyyy',
-            maxdate=datetime.now(),  # No permite fechas futuras
-            year=2000,
-            month=1,
-            day=1
+            maxdate=hace_5_anios             # no permite fechas futuras
+            # quita year/month/day si estaban fuera del rango
         )
+
         self.date_entry.pack(fill='x', ipady=6)
         
         # Idioma
@@ -577,6 +627,13 @@ class Registro:
         self.root.after(50, self.root.destroy)
         ventana.mainloop()
 
+    def volver_a_personalizacion(self):
+        from ventana_personalizacion import ColorSelectorApp
+        ventana = tk.Tk()
+        ColorSelectorApp(ventana)
+        # destruir registro con un pequeño delay para dejar que se procesen 'after' pendientes
+        self.root.after(50, self.root.destroy)
+        ventana.mainloop()
     
     def activar_face_recognition(self):
         """Activa el reconocimiento facial"""
@@ -596,6 +653,15 @@ class Registro:
         except:
             pass
         
+        # Si ya existe un pkl previo para este username, úsalo y no vuelvas a grabar
+        existente = buscar_face_file(username)
+        if existente:
+            self.face_id_registered = True
+            self.face_id_filename = existente
+            self._sincronizar_face_id_con_archivo(username, actualizar_ui=True)
+            messagebox.showinfo("Face ID", f"✓ Ya existía un Face ID para {username}. Se vinculó automáticamente.")
+            return True
+
         resultado = self.register_face_direct(username)
         
         if resultado:
@@ -623,6 +689,8 @@ class Registro:
             self.face_id_filename = None
             return False
     
+    # Modificación en la función register_face_direct del archivo Registro.py
+
     def register_face_direct(self, username):
         """Registra el rostro y devuelve el nombre del archivo"""
         try:
@@ -653,7 +721,7 @@ class Registro:
                 
                 progress = len(faces_captured)
                 cv2.putText(frame, f"Capturando: {progress}/{max_faces}", (10, 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 1, (138, 28, 50), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (138, 28, 50), 2)
                 
                 cv2.imshow(f'Face ID - {username}', frame)
                 
@@ -684,11 +752,16 @@ class Registro:
             with open(filename, 'wb') as f:
                 pickle.dump(face_data, f)
             
+            print(f"✅ Face ID guardado en: {filename}")
+            print(f"✅ Total de caras capturadas: {len(faces_captured)}")
+            
             # Retornar solo el nombre del archivo (no los datos)
             return filename
             
         except Exception as e:
             messagebox.showerror("Error", f"Error al registrar Face ID: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
     
     \
@@ -830,6 +903,15 @@ def ir_a_ventana2(self):
         # Crear usuario (SIN GUARDAR DATOS NUMPY - solo referencias)
         username = self.var_username.get().strip()
                 # Codificar foto de perfil en base64 (PNG con transparencia) si se seleccionó
+                # Vincular FaceID si existe el archivo aunque no se haya re-capturado en esta sesión
+        if not self.face_id_registered:
+            ruta = buscar_face_file(username)
+            if ruta:
+                self.face_id_registered = True
+                self.face_id_filename = ruta
+                # (opcional) actualiza UI en esta pantalla:
+                self._sincronizar_face_id_con_archivo(username, actualizar_ui=True)
+
         avatar_b64 = ''
         if self.imagen_perfil is not None:
             try:
@@ -882,7 +964,7 @@ def ir_a_ventana2(self):
             )
             
             # Cerrar registro y abrir login
-            self.volver_a_login()
+            self.volver_a_personalizacion()
         else:
             messagebox.showerror("Error", "No se pudo guardar el usuario")
 
