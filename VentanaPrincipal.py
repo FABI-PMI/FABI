@@ -284,16 +284,6 @@ class VillageGame(tk.Frame):
             x_pos = self.grid_x + house_spacing * (i + 1) - 17
             self.safe_houses.append(House(x_pos, house_y, self.palette, is_invader=False))
         
-        # Crear casas de la zona invasora
-        self.invader_houses = []
-        num_invader_houses = 6
-        invader_spacing = grid_width // (num_invader_houses + 1)
-        house_y = 605
-        
-        for i in range(num_invader_houses):
-            x_pos = self.grid_x + invader_spacing * (i + 1) - 17
-            self.invader_houses.append(House(x_pos, house_y, self.palette, is_invader=True))
-        
         # Crear elementos UI
         self.user_icon = UserIcon(40, 40, self.palette)
         self.question_btn = QuestionButton(460, 40, self.palette)
@@ -343,10 +333,6 @@ class VillageGame(tk.Frame):
         
         # Dibujar casas seguras
         for house in self.safe_houses:
-            house.draw(self.canvas)
-        
-        # Dibujar casas invasoras
-        for house in self.invader_houses:
             house.draw(self.canvas)
         
         # Dibujar elementos UI
