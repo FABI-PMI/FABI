@@ -1,10 +1,11 @@
 """
-Sistema de juego de aldeas con cuadrícula.
+Sistema de juego de aldeas con cuadrícula estilo zacate.
 Versión completamente en Tkinter (sin Pygame).
 Recibe paletas de colores desde módulos externos.
 """
 import tkinter as tk
 from tkinter import Canvas
+import random
 
 
 class ColorPalette:
@@ -34,9 +35,11 @@ class ColorPalette:
         self.invader_houses_door = self.rgb_to_hex(palette_dict.get('invader_houses_door', (40, 40, 40)))
         self.invader_houses_window = self.rgb_to_hex(palette_dict.get('invader_houses_window', (150, 100, 100)))
         
-        # Cuadrícula
-        self.grid_bg = self.rgb_to_hex(palette_dict.get('grid_bg', (255, 255, 255)))
-        self.grid_lines = self.rgb_to_hex(palette_dict.get('grid_lines', (139, 69, 19)))
+        # Cuadrícula - Colores de zacate
+        self.grid_bg_light = self.rgb_to_hex(palette_dict.get('grid_bg_light', (180, 200, 120)))
+        self.grid_bg_dark = self.rgb_to_hex(palette_dict.get('grid_bg_dark', (140, 170, 90)))
+        self.grid_lines = self.rgb_to_hex(palette_dict.get('grid_lines', (100, 130, 60)))
+        self.grid_border = self.rgb_to_hex(palette_dict.get('grid_border', (80, 100, 40)))
         
         # Elementos UI
         self.user_icon_bg = self.rgb_to_hex(palette_dict.get('user_icon_bg', (255, 255, 255)))
@@ -54,7 +57,7 @@ class ColorPalette:
         return '#%02x%02x%02x' % rgb
     
     def get_default_palette(self):
-        """Paleta por defecto"""
+        """Paleta por defecto con tonos de zacate"""
         return {
             'safe_zone_bg': (240, 248, 255),
             'safe_houses': (139, 69, 19),
@@ -66,8 +69,10 @@ class ColorPalette:
             'invader_houses_roof': (120, 20, 20),
             'invader_houses_door': (40, 40, 40),
             'invader_houses_window': (150, 100, 100),
-            'grid_bg': (255, 255, 255),
-            'grid_lines': (139, 69, 19),
+            'grid_bg_light': (180, 200, 120),
+            'grid_bg_dark': (140, 170, 90),
+            'grid_lines': (100, 130, 60),
+            'grid_border': (80, 100, 40),
             'user_icon_bg': (255, 255, 255),
             'user_icon_border': (139, 69, 19),
             'user_icon_person': (139, 69, 19),
@@ -184,20 +189,20 @@ class QuestionButton:
         self.size = 45
     
     def draw(self, canvas):
-        half_size = self.size // 2
+        radius = self.size // 2
         
-        # Fondo redondeado (rectángulo con esquinas redondeadas simuladas)
-        canvas.create_rectangle(
-            self.x - half_size, self.y - half_size,
-            self.x + half_size, self.y + half_size,
+        # Círculo de fondo
+        canvas.create_oval(
+            self.x - radius, self.y - radius,
+            self.x + radius, self.y + radius,
             fill=self.palette.question_bg,
             outline=self.palette.question_bg
         )
         
-        # Signo de interrogación
+        # Signo de moneda ($)
         canvas.create_text(
             self.x, self.y,
-            text="?",
+            text="$",
             font=("Arial", 30, "bold"),
             fill=self.palette.question_text
         )
@@ -213,17 +218,48 @@ class Grid:
         self.palette = palette
         self.width = cols * cell_size
         self.height = rows * cell_size
+        
+        # Generar patrón de tablero de ajedrez para el zacate
+        self.cell_colors = []
+        for row in range(rows):
+            row_colors = []
+            for col in range(cols):
+                # Alternar colores como tablero de ajedrez
+                if (row + col) % 2 == 0:
+                    row_colors.append(self.palette.grid_bg_light)
+                else:
+                    row_colors.append(self.palette.grid_bg_dark)
+            self.cell_colors.append(row_colors)
     
     def draw(self, canvas):
-        # Fondo de la cuadrícula
+        # Borde exterior más grueso y oscuro
+        border_width = 8
         canvas.create_rectangle(
-            self.x, self.y,
-            self.x + self.width, self.y + self.height,
-            fill=self.palette.grid_bg,
-            outline=self.palette.grid_bg
+            self.x - border_width, self.y - border_width,
+            self.x + self.width + border_width, self.y + self.height + border_width,
+            fill=self.palette.grid_border,
+            outline=self.palette.grid_border
         )
         
-        # Líneas verticales
+        # Dibujar celdas con patrón de tablero
+        for row in range(self.rows):
+            for col in range(self.cols):
+                x1 = self.x + col * self.cell_size
+                y1 = self.y + row * self.cell_size
+                x2 = x1 + self.cell_size
+                y2 = y1 + self.cell_size
+                
+                # Dibujar celda con su color
+                canvas.create_rectangle(
+                    x1, y1, x2, y2,
+                    fill=self.cell_colors[row][col],
+                    outline=self.cell_colors[row][col]
+                )
+                
+                # Agregar textura de zacate (líneas pequeñas)
+                self.draw_grass_texture(canvas, x1, y1, x2, y2)
+        
+        # Líneas de la cuadrícula (más sutiles)
         for col in range(self.cols + 1):
             x_pos = self.x + col * self.cell_size
             canvas.create_line(
@@ -233,7 +269,6 @@ class Grid:
                 width=2
             )
         
-        # Líneas horizontales
         for row in range(self.rows + 1):
             y_pos = self.y + row * self.cell_size
             canvas.create_line(
@@ -242,6 +277,27 @@ class Grid:
                 fill=self.palette.grid_lines,
                 width=2
             )
+    
+    def draw_grass_texture(self, canvas, x1, y1, x2, y2):
+        """Dibuja pequeñas líneas para simular textura de zacate"""
+        # Seed basado en posición para que sea consistente
+        random.seed(int(x1 * y1))
+        
+        # Dibujar algunas líneas pequeñas
+        for _ in range(3):
+            x_rand = random.randint(int(x1) + 5, int(x2) - 5)
+            y_rand = random.randint(int(y1) + 5, int(y2) - 5)
+            length = random.randint(3, 8)
+            
+            # Línea vertical pequeña
+            canvas.create_line(
+                x_rand, y_rand,
+                x_rand, y_rand + length,
+                fill=self.palette.grid_lines,
+                width=1
+            )
+        
+        random.seed()  # Reset seed
 
 
 class VillageGame(tk.Frame):
@@ -264,19 +320,19 @@ class VillageGame(tk.Frame):
         )
         self.canvas.pack()
         
-        # Configuración de la cuadrícula
+        # Configuración de la cuadrícula (ahora 5x9)
         self.grid_cols = 5
-        self.grid_rows = 8
-        self.cell_size = 60
+        self.grid_rows = 9
+        self.cell_size = 50
         grid_width = self.grid_cols * self.cell_size
         self.grid_x = (self.width - grid_width) // 2
         
         self.grid = Grid(self.grid_x, 120, self.grid_rows, self.grid_cols, 
                         self.cell_size, self.palette)
         
-        # Crear casas de la zona segura
+        # Crear casas de la zona segura (5 casas con más espacio)
         self.safe_houses = []
-        num_safe_houses = 6
+        num_safe_houses = 5
         house_spacing = grid_width // (num_safe_houses + 1)
         house_y = 45
         
@@ -315,6 +371,9 @@ class VillageGame(tk.Frame):
     def apply_new_palette(self, new_palette_dict):
         """Aplica una nueva paleta de colores y redibuja"""
         self.palette.update_palette(new_palette_dict)
+        # Recrear la cuadrícula con los nuevos colores
+        self.grid = Grid(self.grid_x, 120, self.grid_rows, self.grid_cols, 
+                        self.cell_size, self.palette)
         self.draw()
     
     def draw(self):
