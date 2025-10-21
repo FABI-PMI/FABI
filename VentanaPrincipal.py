@@ -1,7 +1,6 @@
 """
-Sistema de juego de aldeas con cuadrícula estilo zacate.
-Versión completamente en Tkinter (sin Pygame).
-Recibe paletas de colores desde módulos externos.
+Sistema visual del juego Avatars vs Rooks 
+Este módulo implementa la interfaz gráfica usando Tkinter.
 """
 import tkinter as tk
 from tkinter import Canvas
@@ -199,14 +198,57 @@ class QuestionButton:
             outline=self.palette.question_bg
         )
         
-        # Signo de moneda ($)
+        # Signo de interrogación (?)
         canvas.create_text(
             self.x, self.y,
-            text="$",
+            text="?",
             font=("Arial", 30, "bold"),
             fill=self.palette.question_text
         )
 
+
+
+class TopRightButton:
+    """Botón START rectangular en la esquina superior derecha del grid"""
+    def __init__(self, x, y, palette):
+        self.x = x
+        self.y = y
+        self.palette = palette
+        # Dimensiones del rectángulo (ancho x alto)
+        self.width = 80
+        self.height = 40
+        self.visible = True
+    
+    def draw(self, canvas):
+        if not self.visible:
+            return
+        
+        # Calcular las esquinas del rectángulo
+        x1 = self.x - self.width // 2
+        y1 = self.y - self.height // 2
+        x2 = self.x + self.width // 2
+        y2 = self.y + self.height // 2
+        
+        # Rectángulo de fondo con color principal (safe_houses)
+        canvas.create_rectangle(
+            x1, y1, x2, y2,
+            fill=self.palette.safe_houses,
+            outline=self.palette.safe_houses_roof,
+            width=3,
+            tags="top_right_button"
+        )
+        
+        # Texto "START" centrado en el rectángulo
+        canvas.create_text(
+            self.x, self.y,
+            text="START",
+            font=("Arial", 12, "bold"),
+            fill=self.palette.safe_houses_window,
+            tags="top_right_button"
+        )
+    
+    def hide(self):
+        self.visible = False
 
 class Grid:
     def __init__(self, x, y, rows, cols, cell_size, palette):
@@ -302,7 +344,7 @@ class Grid:
 
 class VillageGame(tk.Frame):
     """Clase principal del juego de aldeas en Tkinter"""
-    def __init__(self, parent, width=500, height=700, initial_palette=None):
+    def __init__(self, parent, width=600, height=750, initial_palette=None):
         super().__init__(parent, width=width, height=height)
         self.width = width
         self.height = height
@@ -323,26 +365,37 @@ class VillageGame(tk.Frame):
         # Configuración de la cuadrícula (ahora 5x9)
         self.grid_cols = 5
         self.grid_rows = 9
-        self.cell_size = 50
+        self.cell_size = 60
         grid_width = self.grid_cols * self.cell_size
         self.grid_x = (self.width - grid_width) // 2
         
-        self.grid = Grid(self.grid_x, 120, self.grid_rows, self.grid_cols, 
+        self.grid = Grid(self.grid_x, 100, self.grid_rows, self.grid_cols, 
                         self.cell_size, self.palette)
         
         # Crear casas de la zona segura (5 casas con más espacio)
         self.safe_houses = []
         num_safe_houses = 5
         house_spacing = grid_width // (num_safe_houses + 1)
-        house_y = 45
+        house_y = 10
         
         for i in range(num_safe_houses):
             x_pos = self.grid_x + house_spacing * (i + 1) - 17
             self.safe_houses.append(House(x_pos, house_y, self.palette, is_invader=False))
         
         # Crear elementos UI
-        self.user_icon = UserIcon(40, 40, self.palette)
-        self.question_btn = QuestionButton(460, 40, self.palette)
+        self.user_icon = UserIcon(40, 30, self.palette)
+        self.question_btn = QuestionButton(self.width - 40, 30, self.palette)
+        
+        # Crear botón en la esquina superior derecha del grid (fuera del grid)
+        # Posición: esquina superior derecha del grid + offset
+        grid_right_x = self.grid_x + self.grid.width
+        grid_top_y = 100
+        button_x = grid_right_x + 70  # Más separado para evitar traslape
+        button_y = grid_top_y + 20  # Alineado con la altura de la cuadrícula
+        self.top_right_btn = TopRightButton(button_x, button_y, self.palette)
+        
+        # Vincular eventos del canvas
+        self.canvas.bind("<Button-1>", self.on_canvas_click)
         
         # Dibujar todo
         self.draw()
@@ -354,7 +407,7 @@ class VillageGame(tk.Frame):
         """Dibuja las zonas segura e invasora"""
         # Zona segura
         self.canvas.create_rectangle(
-            0, 0, self.width, 115,
+            self.grid_x - 8, 0, self.grid_x + self.grid_cols * self.cell_size + 8, 60,
             fill=self.palette.safe_zone_bg,
             outline=self.palette.safe_zone_bg,
             tags="zones"
@@ -362,7 +415,7 @@ class VillageGame(tk.Frame):
         
         # Zona invasora
         self.canvas.create_rectangle(
-            0, 600, self.width, 700,
+            self.grid_x - 8, 690, self.grid_x + self.grid_cols * self.cell_size + 8, 750,
             fill=self.palette.invader_zone_bg,
             outline=self.palette.invader_zone_bg,
             tags="zones"
@@ -372,7 +425,7 @@ class VillageGame(tk.Frame):
         """Aplica una nueva paleta de colores y redibuja"""
         self.palette.update_palette(new_palette_dict)
         # Recrear la cuadrícula con los nuevos colores
-        self.grid = Grid(self.grid_x, 120, self.grid_rows, self.grid_cols, 
+        self.grid = Grid(self.grid_x, 100, self.grid_rows, self.grid_cols, 
                         self.cell_size, self.palette)
         self.draw()
     
@@ -397,12 +450,38 @@ class VillageGame(tk.Frame):
         # Dibujar elementos UI
         self.user_icon.draw(self.canvas)
         self.question_btn.draw(self.canvas)
+        self.top_right_btn.draw(self.canvas)
     
     def animate(self):
         """Método para animaciones futuras"""
         # Aquí se pueden agregar animaciones
         # Por ahora solo mantiene el loop
         self.after(33, self.animate)  # ~30 FPS
+    
+    def on_canvas_click(self, event):
+        """Maneja los clics en el canvas"""
+        # Verificar si el clic está dentro del rectángulo del botón
+        if self.top_right_btn.visible:
+            x1 = self.top_right_btn.x - self.top_right_btn.width // 2
+            y1 = self.top_right_btn.y - self.top_right_btn.height // 2
+            x2 = self.top_right_btn.x + self.top_right_btn.width // 2
+            y2 = self.top_right_btn.y + self.top_right_btn.height // 2
+            
+            # Si el clic está dentro del rectángulo
+            if x1 <= event.x <= x2 and y1 <= event.y <= y2:
+                self.on_top_right_button_pressed()
+    
+    def on_top_right_button_pressed(self):
+        """Función llamada cuando se presiona el botón START"""
+        print("=" * 50)
+        print("🎮 ¡JUEGO INICIADO!")
+        print("=" * 50)
+        print("Botón START presionado - Iniciar lógica del juego")
+        print("=" * 50)
+        # TODO: Agregar lógica del juego aquí
+        self.top_right_btn.hide()
+        self.draw()
+
 
 
 class VillageGameWindow:
@@ -410,11 +489,11 @@ class VillageGameWindow:
     def __init__(self, initial_palette=None):
         self.root = tk.Tk()
         self.root.title("Sistema de Aldeas")
-        self.root.geometry("500x700")
+        self.root.geometry("600x750")
         self.root.resizable(False, False)
         
         # Crear el juego
-        self.game = VillageGame(self.root, 500, 700, initial_palette)
+        self.game = VillageGame(self.root, 600, 750, initial_palette)
         self.game.pack()
     
     def run(self):
