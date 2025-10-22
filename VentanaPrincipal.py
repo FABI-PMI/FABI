@@ -250,6 +250,150 @@ class TopRightButton:
     def hide(self):
         self.visible = False
 
+class ElementButton:
+    """Botones cuadrados temáticos de elementos (arena, roca, agua, fuego)"""
+    def __init__(self, x, y, element_type, palette):
+        self.x = x
+        self.y = y
+        self.element_type = element_type  # 'sand', 'rock', 'water', 'fire'
+        self.palette = palette
+        self.size = 55  # Tamaño del cuadrado
+    
+    def get_colors(self):
+        """Retorna los colores según el tipo de elemento"""
+        if self.element_type == 'sand':
+            return {
+                'bg': '#F4A460',  # Sandy brown
+                'accent': '#DEB887',  # Burlywood
+                'dots': '#D2691E'  # Chocolate
+            }
+        elif self.element_type == 'rock':
+            return {
+                'bg': '#808080',  # Gray base fijo
+                'accent': '#696969',  # Dim gray
+                'dots': '#404040'  # Grietas oscuras
+            }
+        elif self.element_type == 'water':
+            return {
+                'bg': '#4682B4',  # Steel blue
+                'accent': '#5F9EA0',  # Cadet blue
+                'dots': '#1E90FF'  # Dodger blue
+            }
+        elif self.element_type == 'fire':
+            return {
+                'bg': '#FF4500',  # Orange red
+                'accent': '#FF6347',  # Tomato
+                'dots': '#FFD700'  # Gold
+            }
+    
+    def draw(self, canvas):
+        colors = self.get_colors()
+        half = self.size // 2
+        
+        # Cuadrado de fondo
+        canvas.create_rectangle(
+            self.x - half, self.y - half,
+            self.x + half, self.y + half,
+            fill=colors['bg'],
+            outline='#333333',
+            width=2
+        )
+        
+        # Decoración según el elemento
+        if self.element_type == 'sand':
+            # Puntos aleatorios para simular granos de arena
+            import random
+            random.seed(self.x + self.y)
+            for _ in range(12):
+                px = self.x - half + random.randint(5, self.size - 5)
+                py = self.y - half + random.randint(5, self.size - 5)
+                canvas.create_oval(px-1, py-1, px+1, py+1, fill=colors['dots'], outline=colors['dots'])
+            random.seed()
+        
+        elif self.element_type == 'rock':
+            # Grietas oscuras en patrón irregular sobre fondo gris
+            # Grieta diagonal principal
+            canvas.create_line(
+                self.x - 18, self.y - 12,
+                self.x + 15, self.y + 18,
+                fill=colors['dots'], width=3
+            )
+            # Grieta secundaria
+            canvas.create_line(
+                self.x - 10, self.y - 20,
+                self.x - 5, self.y + 8,
+                fill=colors['dots'], width=2
+            )
+            # Grieta terciaria
+            canvas.create_line(
+                self.x + 8, self.y - 15,
+                self.x + 20, self.y - 5,
+                fill=colors['dots'], width=2
+            )
+            # Pequeñas grietas adicionales
+            canvas.create_line(
+                self.x - 15, self.y + 5,
+                self.x - 8, self.y + 12,
+                fill=colors['accent'], width=2
+            )
+            canvas.create_line(
+                self.x + 5, self.y + 8,
+                self.x + 18, self.y + 15,
+                fill=colors['accent'], width=2
+            )
+        
+        elif self.element_type == 'water':
+            # Ondas horizontales
+            for i in range(3):
+                y_wave = self.y - half + 15 + (i * 12)
+                canvas.create_arc(
+                    self.x - half + 5, y_wave - 5,
+                    self.x - half + 25, y_wave + 5,
+                    start=0, extent=180, style='arc',
+                    outline=colors['accent'], width=2
+                )
+                canvas.create_arc(
+                    self.x - 10, y_wave - 5,
+                    self.x + 10, y_wave + 5,
+                    start=0, extent=180, style='arc',
+                    outline=colors['dots'], width=2
+                )
+                canvas.create_arc(
+                    self.x + 5, y_wave - 5,
+                    self.x + half - 5, y_wave + 5,
+                    start=0, extent=180, style='arc',
+                    outline=colors['accent'], width=2
+                )
+        
+        elif self.element_type == 'fire':
+            # Diseño de fuego con círculos concéntricos (estilo brasas)
+            # Círculo exterior rojo oscuro
+            canvas.create_oval(
+                self.x - 22, self.y - 18,
+                self.x + 22, self.y + 22,
+                fill='#8B0000', outline=''
+            )
+            # Círculo medio rojo
+            canvas.create_oval(
+                self.x - 16, self.y - 12,
+                self.x + 16, self.y + 16,
+                fill='#DC143C', outline=''
+            )
+            # Círculo naranja
+            canvas.create_oval(
+                self.x - 10, self.y - 6,
+                self.x + 10, self.y + 10,
+                fill='#FF6347', outline=''
+            )
+            # Círculo amarillo central (parte más caliente)
+            canvas.create_oval(
+                self.x - 5, self.y - 2,
+                self.x + 5, self.y + 6,
+                fill='#FFD700', outline=''
+            )
+
+
+
 class Grid:
     def __init__(self, x, y, rows, cols, cell_size, palette):
         self.x = x
@@ -394,6 +538,17 @@ class VillageGame(tk.Frame):
         button_y = grid_top_y + 20  # Alineado con la altura de la cuadrícula
         self.top_right_btn = TopRightButton(button_x, button_y, self.palette)
         
+        # Crear botones de elementos al lado derecho de la cuadrícula
+        self.element_buttons = []
+        element_types = ['sand', 'rock', 'water', 'fire']
+        element_x = button_x  # Usar la misma X del botón START para centrarlos
+        start_y = button_y + 110  # Empezar más abajo del botón START
+        spacing = 70  # Espacio entre botones
+        
+        for i, element in enumerate(element_types):
+            element_y = start_y + (i * spacing)
+            self.element_buttons.append(ElementButton(element_x, element_y, element, self.palette))
+        
         # Vincular eventos del canvas
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         
@@ -451,6 +606,10 @@ class VillageGame(tk.Frame):
         self.user_icon.draw(self.canvas)
         self.question_btn.draw(self.canvas)
         self.top_right_btn.draw(self.canvas)
+        
+        # Dibujar botones de elementos
+        for element_btn in self.element_buttons:
+            element_btn.draw(self.canvas)
     
     def animate(self):
         """Método para animaciones futuras"""
