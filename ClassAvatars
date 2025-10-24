@@ -1,0 +1,73 @@
+class EstadoAccion:
+    def __init__(self, atacar=False, mover=False):
+        self.atacar = atacar
+        self.mover = mover
+
+class Avatar:
+    nombre: str = "Avatar"
+
+    def __init__(self, vida: int, ataque: int, cd_mover: float, cd_atacar: float,
+                 solo_torre_en_frente: bool = False, nombre: str = None):
+        self.vida = vida
+        self.ataque = ataque
+        self.cd_mover = cd_mover
+        self.cd_atacar = cd_atacar
+        self.solo_torre_en_frente = solo_torre_en_frente
+        self.nombre = nombre or self.__class__.__name__
+        self._t_mover = 0.0
+        self._t_atacar = 0.0
+
+    def esta_vivo(self) -> bool:
+        return self.vida > 0
+
+    def recibir_daño(self, daño: int) -> None:
+        self.vida = max(0, self.vida - daño)
+
+    def _puede_atacar(self, torre_en_frente: bool) -> bool:
+        if self._t_atacar > 0:
+            return False
+        if self.solo_torre_en_frente and not torre_en_frente:
+            return False
+        return True
+ 
+    def _puede_mover(self) -> bool:
+        return self._t_mover <= 0
+
+    def step(self, dt: float, torre_en_frente: bool = False) -> EstadoAccion:
+        if not self.esta_vivo():
+            return EstadoAccion(False, False)
+
+        self._t_mover = max(0.0, self._t_mover - dt)
+        self._t_atacar = max(0.0, self._t_atacar - dt)
+
+        acciones = EstadoAccion()
+
+        if self._puede_atacar(torre_en_frente):
+            acciones.atacar = True
+            self._t_atacar = self.cd_atacar
+
+        if self._puede_mover():
+            acciones.mover = True
+            self._t_mover = self.cd_mover
+
+        return acciones
+
+class Flechador(Avatar):
+    def __init__(self):
+        super().__init__(vida=5, ataque=2, cd_mover=10.0, cd_atacar=10.0,
+                         solo_torre_en_frente=False, nombre="Flechador")
+
+class Escudero(Avatar):
+    def __init__(self):
+        super().__init__(vida=10, ataque=3, cd_mover=10.0, cd_atacar=15.0,
+                         solo_torre_en_frente=False, nombre="Escudero")
+
+class Leñador(Avatar):
+    def __init__(self):
+        super().__init__(vida=20, ataque=9, cd_mover=13.0, cd_atacar=5.0,
+                         solo_torre_en_frente=True, nombre="Leñador")
+
+class Canibal(Avatar):
+    def __init__(self):
+        super().__init__(vida=25, ataque=12, cd_mover=14.0, cd_atacar=3.0,
+                         solo_torre_en_frente=True, nombre="Caníbal")
