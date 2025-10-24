@@ -1,10 +1,10 @@
 """
-Sistema de juego de aldeas con cuadrícula.
-Versión completamente en Tkinter (sin Pygame).
-Recibe paletas de colores desde módulos externos.
+Sistema visual del juego Avatars vs Rooks 
+Este módulo implementa la interfaz gráfica usando Tkinter.
 """
 import tkinter as tk
 from tkinter import Canvas
+import random
 
 
 class ColorPalette:
@@ -34,9 +34,11 @@ class ColorPalette:
         self.invader_houses_door = self.rgb_to_hex(palette_dict.get('invader_houses_door', (40, 40, 40)))
         self.invader_houses_window = self.rgb_to_hex(palette_dict.get('invader_houses_window', (150, 100, 100)))
         
-        # Cuadrícula
-        self.grid_bg = self.rgb_to_hex(palette_dict.get('grid_bg', (255, 255, 255)))
-        self.grid_lines = self.rgb_to_hex(palette_dict.get('grid_lines', (139, 69, 19)))
+        # Cuadrícula - Colores de zacate
+        self.grid_bg_light = self.rgb_to_hex(palette_dict.get('grid_bg_light', (180, 200, 120)))
+        self.grid_bg_dark = self.rgb_to_hex(palette_dict.get('grid_bg_dark', (140, 170, 90)))
+        self.grid_lines = self.rgb_to_hex(palette_dict.get('grid_lines', (100, 130, 60)))
+        self.grid_border = self.rgb_to_hex(palette_dict.get('grid_border', (80, 100, 40)))
         
         # Elementos UI
         self.user_icon_bg = self.rgb_to_hex(palette_dict.get('user_icon_bg', (255, 255, 255)))
@@ -54,7 +56,7 @@ class ColorPalette:
         return '#%02x%02x%02x' % rgb
     
     def get_default_palette(self):
-        """Paleta por defecto"""
+        """Paleta por defecto con tonos de zacate"""
         return {
             'safe_zone_bg': (240, 248, 255),
             'safe_houses': (139, 69, 19),
@@ -66,8 +68,10 @@ class ColorPalette:
             'invader_houses_roof': (120, 20, 20),
             'invader_houses_door': (40, 40, 40),
             'invader_houses_window': (150, 100, 100),
-            'grid_bg': (255, 255, 255),
-            'grid_lines': (139, 69, 19),
+            'grid_bg_light': (180, 200, 120),
+            'grid_bg_dark': (140, 170, 90),
+            'grid_lines': (100, 130, 60),
+            'grid_border': (80, 100, 40),
             'user_icon_bg': (255, 255, 255),
             'user_icon_border': (139, 69, 19),
             'user_icon_person': (139, 69, 19),
@@ -184,23 +188,210 @@ class QuestionButton:
         self.size = 45
     
     def draw(self, canvas):
-        half_size = self.size // 2
+        radius = self.size // 2
         
-        # Fondo redondeado (rectángulo con esquinas redondeadas simuladas)
-        canvas.create_rectangle(
-            self.x - half_size, self.y - half_size,
-            self.x + half_size, self.y + half_size,
+        # Círculo de fondo
+        canvas.create_oval(
+            self.x - radius, self.y - radius,
+            self.x + radius, self.y + radius,
             fill=self.palette.question_bg,
             outline=self.palette.question_bg
         )
         
-        # Signo de interrogación
+        # Signo de interrogación (?)
         canvas.create_text(
             self.x, self.y,
             text="?",
             font=("Arial", 30, "bold"),
             fill=self.palette.question_text
         )
+
+
+
+class TopRightButton:
+    """Botón START rectangular en la esquina superior derecha del grid"""
+    def __init__(self, x, y, palette):
+        self.x = x
+        self.y = y
+        self.palette = palette
+        # Dimensiones del rectángulo (ancho x alto)
+        self.width = 80
+        self.height = 40
+        self.visible = True
+    
+    def draw(self, canvas):
+        if not self.visible:
+            return
+        
+        # Calcular las esquinas del rectángulo
+        x1 = self.x - self.width // 2
+        y1 = self.y - self.height // 2
+        x2 = self.x + self.width // 2
+        y2 = self.y + self.height // 2
+        
+        # Rectángulo de fondo con color principal (safe_houses)
+        canvas.create_rectangle(
+            x1, y1, x2, y2,
+            fill=self.palette.safe_houses,
+            outline=self.palette.safe_houses_roof,
+            width=3,
+            tags="top_right_button"
+        )
+        
+        # Texto "START" centrado en el rectángulo
+        canvas.create_text(
+            self.x, self.y,
+            text="START",
+            font=("Arial", 12, "bold"),
+            fill=self.palette.safe_houses_window,
+            tags="top_right_button"
+        )
+    
+    def hide(self):
+        self.visible = False
+
+class ElementButton:
+    """Botones cuadrados temáticos de elementos (arena, roca, agua, fuego)"""
+    def __init__(self, x, y, element_type, palette):
+        self.x = x
+        self.y = y
+        self.element_type = element_type  # 'sand', 'rock', 'water', 'fire'
+        self.palette = palette
+        self.size = 55  # Tamaño del cuadrado
+    
+    def get_colors(self):
+        """Retorna los colores según el tipo de elemento"""
+        if self.element_type == 'sand':
+            return {
+                'bg': '#F4A460',  # Sandy brown
+                'accent': '#DEB887',  # Burlywood
+                'dots': '#D2691E'  # Chocolate
+            }
+        elif self.element_type == 'rock':
+            return {
+                'bg': '#808080',  # Gray base fijo
+                'accent': '#696969',  # Dim gray
+                'dots': '#404040'  # Grietas oscuras
+            }
+        elif self.element_type == 'water':
+            return {
+                'bg': '#4682B4',  # Steel blue
+                'accent': '#5F9EA0',  # Cadet blue
+                'dots': '#1E90FF'  # Dodger blue
+            }
+        elif self.element_type == 'fire':
+            return {
+                'bg': '#FF4500',  # Orange red
+                'accent': '#FF6347',  # Tomato
+                'dots': '#FFD700'  # Gold
+            }
+    
+    def draw(self, canvas):
+        colors = self.get_colors()
+        half = self.size // 2
+        
+        # Cuadrado de fondo
+        canvas.create_rectangle(
+            self.x - half, self.y - half,
+            self.x + half, self.y + half,
+            fill=colors['bg'],
+            outline='#333333',
+            width=2
+        )
+        
+        # Decoración según el elemento
+        if self.element_type == 'sand':
+            # Puntos aleatorios para simular granos de arena
+            import random
+            random.seed(self.x + self.y)
+            for _ in range(12):
+                px = self.x - half + random.randint(5, self.size - 5)
+                py = self.y - half + random.randint(5, self.size - 5)
+                canvas.create_oval(px-1, py-1, px+1, py+1, fill=colors['dots'], outline=colors['dots'])
+            random.seed()
+        
+        elif self.element_type == 'rock':
+            # Grietas oscuras en patrón irregular sobre fondo gris
+            # Grieta diagonal principal
+            canvas.create_line(
+                self.x - 18, self.y - 12,
+                self.x + 15, self.y + 18,
+                fill=colors['dots'], width=3
+            )
+            # Grieta secundaria
+            canvas.create_line(
+                self.x - 10, self.y - 20,
+                self.x - 5, self.y + 8,
+                fill=colors['dots'], width=2
+            )
+            # Grieta terciaria
+            canvas.create_line(
+                self.x + 8, self.y - 15,
+                self.x + 20, self.y - 5,
+                fill=colors['dots'], width=2
+            )
+            # Pequeñas grietas adicionales
+            canvas.create_line(
+                self.x - 15, self.y + 5,
+                self.x - 8, self.y + 12,
+                fill=colors['accent'], width=2
+            )
+            canvas.create_line(
+                self.x + 5, self.y + 8,
+                self.x + 18, self.y + 15,
+                fill=colors['accent'], width=2
+            )
+        
+        elif self.element_type == 'water':
+            # Ondas horizontales
+            for i in range(3):
+                y_wave = self.y - half + 15 + (i * 12)
+                canvas.create_arc(
+                    self.x - half + 5, y_wave - 5,
+                    self.x - half + 25, y_wave + 5,
+                    start=0, extent=180, style='arc',
+                    outline=colors['accent'], width=2
+                )
+                canvas.create_arc(
+                    self.x - 10, y_wave - 5,
+                    self.x + 10, y_wave + 5,
+                    start=0, extent=180, style='arc',
+                    outline=colors['dots'], width=2
+                )
+                canvas.create_arc(
+                    self.x + 5, y_wave - 5,
+                    self.x + half - 5, y_wave + 5,
+                    start=0, extent=180, style='arc',
+                    outline=colors['accent'], width=2
+                )
+        
+        elif self.element_type == 'fire':
+            # Diseño de fuego con círculos concéntricos (estilo brasas)
+            # Círculo exterior rojo oscuro
+            canvas.create_oval(
+                self.x - 22, self.y - 18,
+                self.x + 22, self.y + 22,
+                fill='#8B0000', outline=''
+            )
+            # Círculo medio rojo
+            canvas.create_oval(
+                self.x - 16, self.y - 12,
+                self.x + 16, self.y + 16,
+                fill='#DC143C', outline=''
+            )
+            # Círculo naranja
+            canvas.create_oval(
+                self.x - 10, self.y - 6,
+                self.x + 10, self.y + 10,
+                fill='#FF6347', outline=''
+            )
+            # Círculo amarillo central (parte más caliente)
+            canvas.create_oval(
+                self.x - 5, self.y - 2,
+                self.x + 5, self.y + 6,
+                fill='#FFD700', outline=''
+            )
+
 
 
 class Grid:
@@ -213,17 +404,48 @@ class Grid:
         self.palette = palette
         self.width = cols * cell_size
         self.height = rows * cell_size
+        
+        # Generar patrón de tablero de ajedrez para el zacate
+        self.cell_colors = []
+        for row in range(rows):
+            row_colors = []
+            for col in range(cols):
+                # Alternar colores como tablero de ajedrez
+                if (row + col) % 2 == 0:
+                    row_colors.append(self.palette.grid_bg_light)
+                else:
+                    row_colors.append(self.palette.grid_bg_dark)
+            self.cell_colors.append(row_colors)
     
     def draw(self, canvas):
-        # Fondo de la cuadrícula
+        # Borde exterior más grueso y oscuro
+        border_width = 8
         canvas.create_rectangle(
-            self.x, self.y,
-            self.x + self.width, self.y + self.height,
-            fill=self.palette.grid_bg,
-            outline=self.palette.grid_bg
+            self.x - border_width, self.y - border_width,
+            self.x + self.width + border_width, self.y + self.height + border_width,
+            fill=self.palette.grid_border,
+            outline=self.palette.grid_border
         )
         
-        # Líneas verticales
+        # Dibujar celdas con patrón de tablero
+        for row in range(self.rows):
+            for col in range(self.cols):
+                x1 = self.x + col * self.cell_size
+                y1 = self.y + row * self.cell_size
+                x2 = x1 + self.cell_size
+                y2 = y1 + self.cell_size
+                
+                # Dibujar celda con su color
+                canvas.create_rectangle(
+                    x1, y1, x2, y2,
+                    fill=self.cell_colors[row][col],
+                    outline=self.cell_colors[row][col]
+                )
+                
+                # Agregar textura de zacate (líneas pequeñas)
+                self.draw_grass_texture(canvas, x1, y1, x2, y2)
+        
+        # Líneas de la cuadrícula (más sutiles)
         for col in range(self.cols + 1):
             x_pos = self.x + col * self.cell_size
             canvas.create_line(
@@ -233,7 +455,6 @@ class Grid:
                 width=2
             )
         
-        # Líneas horizontales
         for row in range(self.rows + 1):
             y_pos = self.y + row * self.cell_size
             canvas.create_line(
@@ -242,11 +463,32 @@ class Grid:
                 fill=self.palette.grid_lines,
                 width=2
             )
+    
+    def draw_grass_texture(self, canvas, x1, y1, x2, y2):
+        """Dibuja pequeñas líneas para simular textura de zacate"""
+        # Seed basado en posición para que sea consistente
+        random.seed(int(x1 * y1))
+        
+        # Dibujar algunas líneas pequeñas
+        for _ in range(3):
+            x_rand = random.randint(int(x1) + 5, int(x2) - 5)
+            y_rand = random.randint(int(y1) + 5, int(y2) - 5)
+            length = random.randint(3, 8)
+            
+            # Línea vertical pequeña
+            canvas.create_line(
+                x_rand, y_rand,
+                x_rand, y_rand + length,
+                fill=self.palette.grid_lines,
+                width=1
+            )
+        
+        random.seed()  # Reset seed
 
 
 class VillageGame(tk.Frame):
     """Clase principal del juego de aldeas en Tkinter"""
-    def __init__(self, parent, width=500, height=700, initial_palette=None):
+    def __init__(self, parent, width=600, height=750, initial_palette=None):
         super().__init__(parent, width=width, height=height)
         self.width = width
         self.height = height
@@ -264,39 +506,51 @@ class VillageGame(tk.Frame):
         )
         self.canvas.pack()
         
-        # Configuración de la cuadrícula
+        # Configuración de la cuadrícula (ahora 5x9)
         self.grid_cols = 5
-        self.grid_rows = 8
+        self.grid_rows = 9
         self.cell_size = 60
         grid_width = self.grid_cols * self.cell_size
         self.grid_x = (self.width - grid_width) // 2
         
-        self.grid = Grid(self.grid_x, 120, self.grid_rows, self.grid_cols, 
+        self.grid = Grid(self.grid_x, 100, self.grid_rows, self.grid_cols, 
                         self.cell_size, self.palette)
         
-        # Crear casas de la zona segura
+        # Crear casas de la zona segura (5 casas con más espacio)
         self.safe_houses = []
-        num_safe_houses = 6
+        num_safe_houses = 5
         house_spacing = grid_width // (num_safe_houses + 1)
-        house_y = 45
+        house_y = 10
         
         for i in range(num_safe_houses):
             x_pos = self.grid_x + house_spacing * (i + 1) - 17
             self.safe_houses.append(House(x_pos, house_y, self.palette, is_invader=False))
         
-        # Crear casas de la zona invasora
-        self.invader_houses = []
-        num_invader_houses = 6
-        invader_spacing = grid_width // (num_invader_houses + 1)
-        house_y = 605
-        
-        for i in range(num_invader_houses):
-            x_pos = self.grid_x + invader_spacing * (i + 1) - 17
-            self.invader_houses.append(House(x_pos, house_y, self.palette, is_invader=True))
-        
         # Crear elementos UI
-        self.user_icon = UserIcon(40, 40, self.palette)
-        self.question_btn = QuestionButton(460, 40, self.palette)
+        self.user_icon = UserIcon(40, 30, self.palette)
+        self.question_btn = QuestionButton(self.width - 40, 30, self.palette)
+        
+        # Crear botón en la esquina superior derecha del grid (fuera del grid)
+        # Posición: esquina superior derecha del grid + offset
+        grid_right_x = self.grid_x + self.grid.width
+        grid_top_y = 100
+        button_x = grid_right_x + 70  # Más separado para evitar traslape
+        button_y = grid_top_y + 20  # Alineado con la altura de la cuadrícula
+        self.top_right_btn = TopRightButton(button_x, button_y, self.palette)
+        
+        # Crear botones de elementos al lado derecho de la cuadrícula
+        self.element_buttons = []
+        element_types = ['sand', 'rock', 'water', 'fire']
+        element_x = button_x  # Usar la misma X del botón START para centrarlos
+        start_y = button_y + 110  # Empezar más abajo del botón START
+        spacing = 70  # Espacio entre botones
+        
+        for i, element in enumerate(element_types):
+            element_y = start_y + (i * spacing)
+            self.element_buttons.append(ElementButton(element_x, element_y, element, self.palette))
+        
+        # Vincular eventos del canvas
+        self.canvas.bind("<Button-1>", self.on_canvas_click)
         
         # Dibujar todo
         self.draw()
@@ -308,7 +562,7 @@ class VillageGame(tk.Frame):
         """Dibuja las zonas segura e invasora"""
         # Zona segura
         self.canvas.create_rectangle(
-            0, 0, self.width, 115,
+            self.grid_x - 8, 0, self.grid_x + self.grid_cols * self.cell_size + 8, 60,
             fill=self.palette.safe_zone_bg,
             outline=self.palette.safe_zone_bg,
             tags="zones"
@@ -316,7 +570,7 @@ class VillageGame(tk.Frame):
         
         # Zona invasora
         self.canvas.create_rectangle(
-            0, 600, self.width, 700,
+            self.grid_x - 8, 690, self.grid_x + self.grid_cols * self.cell_size + 8, 750,
             fill=self.palette.invader_zone_bg,
             outline=self.palette.invader_zone_bg,
             tags="zones"
@@ -325,6 +579,9 @@ class VillageGame(tk.Frame):
     def apply_new_palette(self, new_palette_dict):
         """Aplica una nueva paleta de colores y redibuja"""
         self.palette.update_palette(new_palette_dict)
+        # Recrear la cuadrícula con los nuevos colores
+        self.grid = Grid(self.grid_x, 100, self.grid_rows, self.grid_cols, 
+                        self.cell_size, self.palette)
         self.draw()
     
     def draw(self):
@@ -345,19 +602,45 @@ class VillageGame(tk.Frame):
         for house in self.safe_houses:
             house.draw(self.canvas)
         
-        # Dibujar casas invasoras
-        for house in self.invader_houses:
-            house.draw(self.canvas)
-        
         # Dibujar elementos UI
         self.user_icon.draw(self.canvas)
         self.question_btn.draw(self.canvas)
+        self.top_right_btn.draw(self.canvas)
+        
+        # Dibujar botones de elementos
+        for element_btn in self.element_buttons:
+            element_btn.draw(self.canvas)
     
     def animate(self):
         """Método para animaciones futuras"""
         # Aquí se pueden agregar animaciones
         # Por ahora solo mantiene el loop
         self.after(33, self.animate)  # ~30 FPS
+    
+    def on_canvas_click(self, event):
+        """Maneja los clics en el canvas"""
+        # Verificar si el clic está dentro del rectángulo del botón
+        if self.top_right_btn.visible:
+            x1 = self.top_right_btn.x - self.top_right_btn.width // 2
+            y1 = self.top_right_btn.y - self.top_right_btn.height // 2
+            x2 = self.top_right_btn.x + self.top_right_btn.width // 2
+            y2 = self.top_right_btn.y + self.top_right_btn.height // 2
+            
+            # Si el clic está dentro del rectángulo
+            if x1 <= event.x <= x2 and y1 <= event.y <= y2:
+                self.on_top_right_button_pressed()
+    
+    def on_top_right_button_pressed(self):
+        """Función llamada cuando se presiona el botón START"""
+        print("=" * 50)
+        print("🎮 ¡JUEGO INICIADO!")
+        print("=" * 50)
+        print("Botón START presionado - Iniciar lógica del juego")
+        print("=" * 50)
+        # TODO: Agregar lógica del juego aquí
+        self.top_right_btn.hide()
+        self.draw()
+
 
 
 class VillageGameWindow:
@@ -365,11 +648,11 @@ class VillageGameWindow:
     def __init__(self, initial_palette=None):
         self.root = tk.Tk()
         self.root.title("Sistema de Aldeas")
-        self.root.geometry("500x700")
+        self.root.geometry("600x750")
         self.root.resizable(False, False)
         
         # Crear el juego
-        self.game = VillageGame(self.root, 500, 700, initial_palette)
+        self.game = VillageGame(self.root, 600, 750, initial_palette)
         self.game.pack()
     
     def run(self):
