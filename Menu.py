@@ -63,13 +63,15 @@ AVATARS VS ROOKS
 
 ══════════════════════
 
-En esta parte podrás encontrar la herramientas necesarias para defendete de LOS AVATARS,
+En esta parte podrás encontrar la herramientas necesarias para defenderte de LOS AVATARS,
 las TORRES ELEMENTALES:
 
-⛰️ Arena
-🪨 Roca 
-💧 Agua 
-🔥 Fuego 
+⛰️ Arena - $50
+🪨 Roca - $100
+💧 Agua - $150
+🔥 Fuego - $150
+
+PRESUPUESTO INICIAL: $600
 
 Ajusta sus frecuencias de disparo 
 según tu estrategia. Cada decisión 
@@ -77,12 +79,12 @@ puede marcar la diferencia.
 
 Elige la dificultad y demuestra 
 tu habilidad en el campo de batalla,
-al selecionarla el juego iniciara inmediatamente.
+al seleccionarla el juego iniciará inmediatamente.
 
 El destino de nuestra aldea 
 está en tus manos.
 
-¡MUCHOS EXITOS EN EL COMBATE! """
+¡MUCHOS ÉXITOS EN EL COMBATE! """
 
         self.text_area.insert('1.0', mensaje) 
         self.text_area.tag_add("center", "1.0", "end")
@@ -148,6 +150,15 @@ está en tus manos.
         )
         title.pack(pady=15) 
         
+        info_label = tk.Label(  
+            sliders_frame, 
+            text="(Segundos entre disparos: 1=rápido, 10=lento)",
+            font=('Georgia', 10),  
+            bg="#C9C9C9", 
+            fg="#555555"
+        )
+        info_label.pack(pady=(0, 10))
+        
         sliders_config = [ 
             ("⛰️  TORRE DE ARENA", "#C4A35A", "#A68A4D"), 
             ("🪨  TORRE DE ROCA", "#7A6F5D", "#5C5347"),  
@@ -181,7 +192,7 @@ está en tus manos.
         
         slider = tk.Scale(
             inner_frame,
-            from_=0,
+            from_=1,  # Cambiado de 0 a 1 para evitar división por cero
             to=10,
             orient=tk.HORIZONTAL,
             showvalue=1,
@@ -196,7 +207,7 @@ está en tus manos.
             sliderlength=32,
             font=('Georgia', 10, 'bold')
         )
-        slider.set(5)
+        slider.set(5)  # Valor predeterminado
         slider.pack(fill=tk.X)
         
         self.Frecuencias[name] = slider
@@ -211,10 +222,10 @@ está en tus manos.
     def mostrar_frecuencias(self):
         frecuencias = self.get_all_frequencies()
         print("\n" + "="*40)
-        print(" FRECUENCIAS DE DISPARO:")
+        print(" FRECUENCIAS DE DISPARO CONFIGURADAS:")
         print("="*40)
         for nombre, valor in frecuencias.items():
-            print(f"{nombre}: {valor}")
+            print(f"{nombre}: {valor} segundos entre disparos")
         print("="*40 + "\n")
     
     #Cambiar el boton de color cuando se va a seleccionar
@@ -227,35 +238,43 @@ está en tus manos.
     #Eleccion de Nivel
     def NivelDificil(self): 
         nivel = "DIFÍCIL"    
-        print(f"Dificultad {nivel} activada")      
-        self.mostrar_frecuencias()                    
-        self.abrir_principal()                        
+        print(f"Nivel {nivel} seleccionado")
+        self.abrir_principal(nivel)                        
 
 
     def NivelMedio(self): 
         nivel = "MEDIO"     
-        print(f"Dificultad {nivel} activada")      
-        self.mostrar_frecuencias()                    
-        self.abrir_principal()                        
+        print(f"Nivel {nivel} seleccionado")
+        self.abrir_principal(nivel)                        
 
 
     def NivelFacil(self):
-        nivel = "FACIL"                             
-        print(f"Dificultad {nivel} activada")      
-        self.mostrar_frecuencias()                    
-        self.abrir_principal()                        
+        nivel = "FÁCIL"                             
+        print(f"Nivel {nivel} seleccionado")
+        self.abrir_principal(nivel)                        
 
     #Ventana
-    def abrir_principal(self):
-        # TODO: Cuando VentanaPrincipal esté lista, descomentar estas líneas:
-        # nivel = ...  # Obtener el nivel seleccionado
-        # frecuencias = self.get_all_frequencies()
-        # VentanaClase = VP(nivel=nivel, frecuencias=frecuencias)
+    def abrir_principal(self, nivel):
+        # Obtener las frecuencias configuradas
+        frecuencias = self.get_all_frequencies()
         
-        from VentanaPrincipal import VillageGameWindow as VP
+        print(f"Iniciando juego... Nivel: {nivel} | Presupuesto: $600")
+        
+        # Importar la ventana principal actualizada
+        # Nota: Cambiar a VentanaPrincipal cuando se reemplace el archivo original
+        try:
+            from VentanaPrincipalActualizada import VillageGameWindow as VP
+        except ImportError:
+            print("Error: No se pudo importar VentanaPrincipalActualizada.py")
+            print("Asegúrate de que el archivo esté en el mismo directorio.")
+            return
+        
+        # Destruir la ventana del menú después de un pequeño delay
         self.root.after(50, self.root.destroy)
-        VentanaClase = VP
-        VentanaClase()
+        
+        # Crear la ventana del juego con el nivel y frecuencias
+        ventana_juego = VP(nivel=nivel, frecuencias=frecuencias)
+        ventana_juego.run()
 
 def main():
     root = tk.Tk()
