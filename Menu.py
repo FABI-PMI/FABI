@@ -263,7 +263,7 @@ está en tus manos.
         # Importar la ventana principal actualizada
         # Nota: Cambiar a VentanaPrincipal cuando se reemplace el archivo original
         try:
-            from VentanaPrincipalActualizada import VillageGameWindow as VP
+            from VentanaPrincipal import VillageGameWindow as VP
         except ImportError:
             print("Error: No se pudo importar VentanaPrincipalActualizada.py")
             print("Asegúrate de que el archivo esté en el mismo directorio.")

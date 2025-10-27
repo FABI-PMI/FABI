@@ -185,11 +185,16 @@ class UserIcon:
 
 
 class QuestionButton:
-    def __init__(self, x, y, palette):
+    def __init__(self, x, y, palette, presupuesto=0):
         self.x = x
         self.y = y
         self.palette = palette
-        self.size = 45
+        self.size = 60  # Aumentado de 45 a 60 para más espacio
+        self.presupuesto = presupuesto
+    
+    def update_presupuesto(self, presupuesto):
+        """Actualiza el valor del presupuesto"""
+        self.presupuesto = presupuesto
     
     def draw(self, canvas):
         radius = self.size // 2
@@ -202,11 +207,11 @@ class QuestionButton:
             outline=self.palette.question_bg
         )
         
-        # Signo de interrogación ($)
+        # Mostrar presupuesto
         canvas.create_text(
             self.x, self.y,
-            text="$",
-            font=("Arial", 30, "bold"),
+            text=f"${self.presupuesto}",
+            font=("Arial", 16, "bold"),
             fill=self.palette.question_text
         )
 
@@ -547,7 +552,7 @@ class VillageGame(tk.Frame):
         
         # Crear elementos UI
         self.user_icon = UserIcon(40, 30, self.palette)
-        self.question_btn = QuestionButton(self.width - 40, 30, self.palette)
+        self.question_btn = QuestionButton(self.width - 40, 30, self.palette, self.presupuesto)
         
         # Crear botón en la esquina superior derecha del grid (fuera del grid)
         grid_right_x = self.grid_x + self.grid.width
@@ -569,15 +574,6 @@ class VillageGame(tk.Frame):
         
         # Vincular eventos del canvas
         self.canvas.bind("<Button-1>", self.on_canvas_click)
-        
-        # Crear etiqueta para mostrar el presupuesto
-        self.presupuesto_label = tk.Label(
-            self,
-            text=f"Presupuesto: ${self.presupuesto}",
-            font=("Arial", 14, "bold"),
-            bg=self.palette.background
-        )
-        self.presupuesto_label.place(x=10, y=60)
         
         # Aplicar frecuencias del menú
         if self.frecuencias:
@@ -637,6 +633,7 @@ class VillageGame(tk.Frame):
             house.draw(self.canvas)
         
         # Dibujar elementos UI
+        self.question_btn.update_presupuesto(self.presupuesto)  # Actualizar el presupuesto
         self.user_icon.draw(self.canvas)
         self.question_btn.draw(self.canvas)
         self.top_right_btn.draw(self.canvas)
@@ -644,9 +641,6 @@ class VillageGame(tk.Frame):
         # Dibujar botones de elementos
         for element_btn in self.element_buttons:
             element_btn.draw(self.canvas)
-        
-        # Actualizar etiqueta de presupuesto
-        self.presupuesto_label.config(text=f"Presupuesto: ${self.presupuesto}")
     
     def animate(self):
         """Método para animaciones y actualización del juego"""
