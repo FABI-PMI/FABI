@@ -617,53 +617,75 @@ class ColorSelectorApp:
     def _download_and_play(self, query):
         """Descarga y reproduce la canción en un hilo separado."""
         try:
-            # Siempre descargar el archivo (más confiable que streams)
-            print("📥 Descargando audio...")
-            temp_dir = tempfile.gettempdir()
-            output_path = os_module.path.join(temp_dir, 'youtube_audio')
-            
-            ydl_opts = {
-                'format': 'bestaudio/best',
-                'outtmpl': output_path,
-                'quiet': True,
-                'no_warnings': True,
-            }
-            
-            with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"ytsearch1:{query}", download=True)
-                
-                if "entries" in info and info["entries"]:
-                    entry = info["entries"][0]
-                else:
-                    entry = info
-                
-                title = entry.get('title', 'Desconocido')
-                uploader = entry.get('uploader', 'YouTube')
-                duration = entry.get('duration', 0)
-                downloaded_file = ydl.prepare_filename(entry)
-            
-            if not os_module.path.exists(downloaded_file):
-                import glob
-                possible_files = glob.glob(output_path + '*')
-                if possible_files:
-                    downloaded_file = possible_files[0]
-                else:
-                    raise RuntimeError("No se pudo encontrar el archivo descargado")
-            
-            print(f"✓ Canción encontrada: {title}")
-            print(f"✓ Archivo descargado: {downloaded_file}")
-            self.current_song_file = downloaded_file
-            
-            # Reproducir según el player disponible
             if AUDIO_PLAYER == 'vlc':
-                self._play_vlc_file(downloaded_file)
+                # VLC: reproducir stream directamente sin descargar
+                print("📥 Buscando stream de audio...")
+                ydl_opts = {
+                    'format': 'bestaudio/best',
+                    'quiet': True,
+                    'no_warnings': True,
+                }
+                
+                with YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(f"ytsearch1:{query}", download=False)
+                    
+                    if "entries" in info and info["entries"]:
+                        entry = info["entries"][0]
+                    else:
+                        entry = info
+                    
+                    title = entry.get('title', 'Desconocido')
+                    uploader = entry.get('uploader', 'YouTube')
+                    duration = entry.get('duration', 0)
+                    stream_url = entry.get('url')
+                
+                print(f"✓ Canción encontrada: {title}")
+                self._play_vlc_stream(stream_url)
+                self.is_playing = True
+                
             elif AUDIO_PLAYER == 'pygame':
+                # pygame: descargar archivo
+                print("📥 Descargando audio...")
+                temp_dir = tempfile.gettempdir()
+                output_path = os_module.path.join(temp_dir, 'youtube_audio')
+                
+                ydl_opts = {
+                    'format': 'bestaudio/best',
+                    'outtmpl': output_path,
+                    'quiet': True,
+                    'no_warnings': True,
+                }
+                
+                with YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(f"ytsearch1:{query}", download=True)
+                    
+                    if "entries" in info and info["entries"]:
+                        entry = info["entries"][0]
+                    else:
+                        entry = info
+                    
+                    title = entry.get('title', 'Desconocido')
+                    uploader = entry.get('uploader', 'YouTube')
+                    duration = entry.get('duration', 0)
+                    downloaded_file = ydl.prepare_filename(entry)
+                
+                if not os_module.path.exists(downloaded_file):
+                    import glob
+                    possible_files = glob.glob(output_path + '*')
+                    if possible_files:
+                        downloaded_file = possible_files[0]
+                    else:
+                        raise RuntimeError("No se pudo encontrar el archivo descargado")
+                
+                print(f"✓ Archivo descargado: {downloaded_file}")
+                self.current_song_file = downloaded_file
+                
                 from pygame import mixer
                 mixer.music.load(downloaded_file)
                 mixer.music.play()
+                self.is_playing = True
                 print("✓ Reproduciendo con pygame")
             
-            self.is_playing = True
             self.root.after(0, lambda t=title, u=uploader, d=duration: self._on_music_ready(t, u, d))
             
         except Exception as ex:
@@ -674,46 +696,41 @@ class ColorSelectorApp:
             print(traceback_msg)
             self.root.after(0, lambda msg=error_msg: self._on_music_error(msg))
     
-    def _play_vlc_file(self, file_path):
-        """Reproduce un archivo de audio descargado con VLC"""
+    def _play_vlc_stream(self, stream_url):
+        """Reproduce stream de audio con VLC"""
         import vlc
         import time
         
-        print(f"📂 Archivo a reproducir: {file_path}")
-        print(f"📊 Tamaño: {os_module.path.getsize(file_path)} bytes")
         print(f"🎵 Intentando reproducir con VLC...")
         
         if not self.vlc_instance:
             self.vlc_instance = vlc.Instance('--no-video', '--quiet')
         
-        if self.vlc_player:
-            self.vlc_player.stop()
-        
         self.vlc_player = self.vlc_instance.media_player_new()
-        media = self.vlc_instance.media_new(file_path)
+        media = self.vlc_instance.media_new(stream_url)
         self.vlc_player.set_media(media)
+        
+        # Configurar volumen
         self.vlc_player.audio_set_volume(100)
         
         print("▶️ Iniciando reproducción...")
         self.vlc_player.play()
         
-        time.sleep(2)
-        state = self.vlc_player.get_state()
-        print(f"🔍 Estado VLC: {state}")
+        # Esperar y verificar estado
+        start = time.time()
+        while time.time() - start < 5:
+            state = self.vlc_player.get_state()
+            
+            if state == vlc.State.Playing:
+                print("✓ Reproduciendo correctamente")
+                return
+            elif state == vlc.State.Error:
+                print("✗ Error en reproducción VLC")
+                raise RuntimeError("VLC no pudo reproducir el stream")
+            
+            time.sleep(0.5)
         
-        if state == vlc.State.Ended or state == vlc.State.Error:
-            print("⚠️ VLC falló, intentando con pygame...")
-            try:
-                from pygame import mixer
-                if not mixer.get_init():
-                    mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
-                
-                mixer.music.load(file_path)
-                mixer.music.play()
-                print("✅ Reproduciendo con pygame")
-            except Exception as e:
-                print(f"❌ Pygame también falló: {e}")
-                raise RuntimeError("No se pudo reproducir el archivo")
+        print(f"⚠ Estado final VLC: {self.vlc_player.get_state()}")
     
     def _on_music_ready(self, title, uploader, duration):
         """Se ejecuta cuando la música está lista"""
@@ -766,7 +783,7 @@ class ColorSelectorApp:
         return f"{minutes}:{secs:02d}"
     
     def iniciar_juego(self):
-        """Guarda la personalización y inicia el juego."""
+        """Inicia el juego en una ventana independiente y cierra la ventana de personalización."""
         if not GAME_AVAILABLE:
             messagebox.showerror(
                 "Error", 
@@ -775,186 +792,31 @@ class ColorSelectorApp:
             )
             return
         
-        # Pedir username para guardar personalización
-        username = self._pedir_username()
-        if not username:
-            return  # Usuario canceló
-        
         try:
-            # Obtener configuración actual
             color = self.color_favorito.get()
             tema = self.tema_var.get()
             cancion = self.cancion_var.get().strip()
             
-            # Guardar personalización en el perfil del usuario
-            self._guardar_personalizacion(username, color, tema, cancion)
-            
-            # Generar paleta
             palette = generate_palette(color, tema)
             
+            # Ocultar la ventana de personalización en lugar de destruirla
             self.root.withdraw()
             
+            # Crear ventana independiente para el juego
             game_window = tk.Toplevel()
             game_window.title("Sistema de Aldeas - Juego")
-            
-            screen_width = game_window.winfo_screenwidth()
-            screen_height = game_window.winfo_screenheight()
-            window_width = 500
-            window_height = 700
-            position_x = int((screen_width - window_width) / 2)
-            position_y = int((screen_height - window_height) / 2)
-            
-            game_window.geometry(f"{window_width}x{window_height}+{position_x}+{position_y}")
+            game_window.geometry("600x750")
             game_window.resizable(False, False)
             
+            # Cuando se cierre la ventana del juego, cerrar toda la aplicación
             game_window.protocol("WM_DELETE_WINDOW", lambda: self._cerrar_aplicacion(game_window))
             
-            game_frame = VillageGame(game_window, width=500, height=700, initial_palette=palette)
+            game_frame = VillageGame(game_window, width=600, height=750, initial_palette=palette)
             game_frame.pack()
             
-            if self.is_playing and cancion:
-                print(f"🎵 Música activa: {cancion}")
-            
         except Exception as e:
-            self.root.deiconify()
+            self.root.deiconify()  # Mostrar ventana de personalización si hay error
             messagebox.showerror("Error", f"No se pudo iniciar el juego:\n{e}")
-    
-    def _pedir_username(self):
-        """Pide el username al usuario para guardar su personalización"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Guardar Personalización")
-        dialog.geometry("400x200")
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        # Centrar el diálogo
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (400 // 2)
-        y = (dialog.winfo_screenheight() // 2) - (200 // 2)
-        dialog.geometry(f"+{x}+{y}")
-        
-        resultado = {'username': None}
-        
-        # Contenido del diálogo
-        tk.Label(
-            dialog,
-            text="Para guardar tu personalización,\ningresa tu nombre de usuario:",
-            font=("Arial", 12),
-            pady=20
-        ).pack()
-        
-        username_var = tk.StringVar()
-        entry = tk.Entry(
-            dialog,
-            textvariable=username_var,
-            font=("Arial", 12),
-            width=25
-        )
-        entry.pack(pady=10)
-        entry.focus()
-        
-        def aceptar():
-            username = username_var.get().strip()
-            if not username:
-                messagebox.showwarning("Advertencia", "Por favor ingresa tu username", parent=dialog)
-                return
-            resultado['username'] = username
-            dialog.destroy()
-        
-        def cancelar():
-            dialog.destroy()
-        
-        # Botones
-        btn_frame = tk.Frame(dialog)
-        btn_frame.pack(pady=20)
-        
-        tk.Button(
-            btn_frame,
-            text="Aceptar",
-            command=aceptar,
-            bg='#10B981',
-            fg='white',
-            font=("Arial", 10, "bold"),
-            padx=20,
-            pady=5,
-            cursor="hand2"
-        ).pack(side='left', padx=10)
-        
-        tk.Button(
-            btn_frame,
-            text="Cancelar",
-            command=cancelar,
-            bg='#EF4444',
-            fg='white',
-            font=("Arial", 10, "bold"),
-            padx=20,
-            pady=5,
-            cursor="hand2"
-        ).pack(side='left', padx=10)
-        
-        # Enter para aceptar
-        entry.bind('<Return>', lambda e: aceptar())
-        
-        dialog.wait_window()
-        return resultado['username']
-    
-    def _guardar_personalizacion(self, username, color, tema, cancion):
-        """Guarda la personalización en el archivo de usuarios encriptado"""
-        import json
-        from cryptography.fernet import Fernet
-        
-        archivo_encriptado = 'usuarios.json.enc'
-        archivo_clave = 'clave.key'
-        
-        try:
-            # Cargar clave
-            with open(archivo_clave, 'rb') as f:
-                clave = f.read()
-            
-            fernet = Fernet(clave)
-            
-            # Desencriptar archivo de usuarios
-            with open(archivo_encriptado, 'rb') as f:
-                datos_encriptados = f.read()
-            
-            datos_desencriptados = fernet.decrypt(datos_encriptados)
-            usuarios = json.loads(datos_desencriptados.decode('utf-8'))
-            
-        except FileNotFoundError:
-            messagebox.showerror("Error", "No se encontró el archivo de usuarios o la clave")
-            return
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al leer usuarios: {e}")
-            return
-        
-        # Verificar que el usuario existe
-        if username not in usuarios:
-            messagebox.showerror("Error", f"El usuario '{username}' no existe")
-            return
-        
-        # Agregar personalización al usuario
-        usuarios[username]['personalizacion'] = {
-            'color': color,
-            'tema': tema,
-            'cancion': cancion
-        }
-        
-        # Encriptar y guardar cambios
-        try:
-            datos_json = json.dumps(usuarios, indent=4, ensure_ascii=False)
-            datos_encriptados = fernet.encrypt(datos_json.encode('utf-8'))
-            
-            with open(archivo_encriptado, 'wb') as f:
-                f.write(datos_encriptados)
-            
-            print(f"✓ Personalización guardada para {username}")
-            messagebox.showinfo(
-                "Guardado Exitoso",
-                f"Tu personalización se guardó correctamente.\n\nUsuario: {username}\nColor: {color}\nTema: {tema}"
-            )
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo guardar la personalización:\n{e}")
     
     def _cerrar_aplicacion(self, game_window):
         """Cierra la ventana del juego y toda la aplicación"""
