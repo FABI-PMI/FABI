@@ -198,10 +198,10 @@ class QuestionButton:
             outline=self.palette.question_bg
         )
         
-        # Signo de interrogación (?)
+        # Signo de interrogación ($)
         canvas.create_text(
             self.x, self.y,
-            text="?",
+            text="$",
             font=("Arial", 30, "bold"),
             fill=self.palette.question_text
         )
