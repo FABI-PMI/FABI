@@ -7,10 +7,6 @@ from tkinter import messagebox
 import math
 import sys
 import os
-import json
-import tempfile
-POPULARIDAD_PATH = os.path.join(tempfile.gettempdir(), "fabi_popularidad.json")
-
 
 # Configuración de rutas para importaciones
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -105,103 +101,6 @@ import tempfile
 import os as os_module
 import threading
 
-def get_popularidad():
-    """
-    Lee la popularidad de la canción actual desde el archivo temporal y también la imprime.
-    Retorna float (0–100) o None si aún no hay dato.
-    """
-    try:
-        with open(POPULARIDAD_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        val = float(data.get("popularidad") if "popularidad" in data else data.get("popularity"))
-        print(f"★ Popularidad actual: {val:.0f}/100")
-        return val
-    except Exception:
-        print("⚠ No hay popularidad disponible todavía (reproduce una canción primero).")
-        return None
-
-def popularidad_youtube(query_or_url: str) -> float:
-    """
-    Devuelve la popularidad (0–100) y también la imprime.
-    Acepta texto de búsqueda o URL de YouTube.
-    """
-    if not YT_DLP_AVAILABLE:
-        raise ImportError("yt-dlp no está disponible. Instala con: pip install yt-dlp")
-
-    # --- 1) Buscar/extraer metadatos con yt-dlp ---
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'quiet': True,
-        'no_warnings': True,
-        'default_search': 'ytsearch',
-        'noplaylist': True,
-    }
-    with YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(
-            query_or_url if query_or_url.startswith(("http://", "https://"))
-            else f"ytsearch1:{query_or_url}",
-            download=False
-        )
-        entry = info["entries"][0] if "entries" in info and info["entries"] else info
-
-    # --- 2) Calcular popularidad (misma lógica que usas en _compute_popularity) ---
-    import math
-    from datetime import datetime, timezone
-
-    views = entry.get("view_count") or 0
-    likes = entry.get("like_count") or 0
-    rating = entry.get("average_rating")  # 1–5 o None
-    upload_date = entry.get("upload_date")  # 'YYYYMMDD' o None
-
-    # Edad en días
-    try:
-        if upload_date:
-            dt = datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=timezone.utc)
-            age_days = max(1, (datetime.now(timezone.utc) - dt).days)
-        else:
-            age_days = 365
-    except Exception:
-        age_days = 365
-
-    vpd = views / max(1, age_days)  # vistas por día
-
-    # Normalizaciones log
-    views_score = min(1.0, math.log10(views + 1) / 7.0)
-    likes_score = min(1.0, math.log10(likes + 1) / 5.0)
-    vel_score   = min(1.0, math.log10(vpd   + 1) / 5.0)
-    if rating is None:
-        rating = 4.0
-    rating_score = max(0.0, min(1.0, (rating - 1.0) / 4.0))
-
-    score = (
-        0.45 * views_score +
-        0.25 * likes_score +
-        0.20 * vel_score +
-        0.10 * rating_score
-    ) * 100.0
-
-    # Etiqueta cualitativa
-    if score >= 85:   label = "viral"
-    elif score >= 60: label = "alta"
-    elif score >= 30: label = "moderada"
-    else:             label = "baja"
-
-    def _abbr(n):
-        try:
-            n = float(n)
-        except:
-            return "0"
-        if n >= 1_000_000_000: return f"{n/1_000_000_000:.1f}B"
-        if n >= 1_000_000:     return f"{n/1_000_000:.1f}M"
-        if n >= 1_000:         return f"{n/1_000:.1f}k"
-        return f"{int(n)}"
-
-    # --- 3) Imprimir y retornar ---
-    print(
-        f"★ Popularidad estimada: {score:.0f}/100 — {label} "
-        f"(vistas≈{_abbr(views)}, likes≈{_abbr(likes)}, v/día≈{_abbr(vpd)}, rating≈{rating:.1f})"
-    )
-    return float(score)
 
 class ColorSelectorApp:
     """
@@ -216,10 +115,6 @@ class ColorSelectorApp:
         Args:
             root: Ventana principal de Tkinter
         """
-        self.popularity_reported = False
-        self.current_popularity = None  # Popularidad 0–100 de la canción actual
-
-
         # Configuración de la ventana principal
         self.root = root
         self.root.title("Personalización - Sistema de Aldeas")
@@ -230,8 +125,8 @@ class ColorSelectorApp:
         screen_height = root.winfo_screenheight()
         
         # Definir tamaño de la ventana
-        window_width = 1150
-        window_height = 800
+        window_width = 1250  # Aumentado para acomodar preview más ancho
+        window_height = 850  # Aumentado para acomodar preview más alto
         
         # Calcular la posición para centrar la ventana
         position_x = int((screen_width - window_width) / 2)
@@ -278,101 +173,6 @@ class ColorSelectorApp:
         if GAME_AVAILABLE and self.game_preview:
             self.update_game_palette()
     
-    def _print_popularity_once(self, info: dict):
-        if self.popularity_reported:
-            return
-        score, label, details = self._compute_popularity(info)
-        self.current_popularity = float(score)
-        print(
-            f"★ Popularidad estimada: {score:.0f}/100 — {label} "
-            f"(vistas≈{details['views_str']}, likes≈{details['likes_str']}, "
-            f"v/día≈{details['vpd_str']}, rating≈{details['rating_str']})"
-        )
-        self._store_popularity(self.current_popularity)  # ← guarda para otros procesos
-        self.popularity_reported = True
-
-
-    def get_popularidad(self):
-        """
-        Retorna la popularidad (0–100) de la canción actualmente cargada,
-        o None si todavía no hay una calculada.
-        """
-        return self.current_popularity
-
-    
-    def _compute_popularity(self, info: dict):
-        """Devuelve (score_0_100, etiqueta, detalles_dict) usando campos de yt-dlp."""
-        import math
-        from datetime import datetime, timezone
-
-        views = info.get("view_count") or 0
-        likes = info.get("like_count") or 0
-        rating = info.get("average_rating")  # suele ser 1–5, puede ser None
-        upload_date = info.get("upload_date")  # 'YYYYMMDD' o None
-
-        # Edad del video en días
-        try:
-            if upload_date:
-                dt = datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=timezone.utc)
-                age_days = max(1, (datetime.now(timezone.utc) - dt).days)
-            else:
-                age_days = 365  # suposición conservadora si no hay fecha
-        except Exception:
-            age_days = 365
-
-        # Velocidad de vistas por día
-        vpd = views / max(1, age_days)
-
-        # Normalizaciones logarítmicas para evitar sesgos por órdenes de magnitud
-        # 10^7 vistas ~ score vistas ~ 1.0; 10^5 likes ~ 1.0; 10^5 v/día ~ 1.0
-        views_score = min(1.0, math.log10(views + 1) / 7.0)
-        likes_score = min(1.0, math.log10(likes + 1) / 5.0)
-        vel_score   = min(1.0, math.log10(vpd   + 1) / 5.0)
-        # Rating 1–5 a 0–1; si no hay rating, asumimos 4.0 (~0.75)
-        if rating is None:
-            rating = 4.0
-        rating_score = max(0.0, min(1.0, (rating - 1.0) / 4.0))
-
-        # Ponderación: vistas (45%), likes (25%), velocidad (20%), rating (10%)
-        score = (
-            0.45 * views_score +
-            0.25 * likes_score +
-            0.20 * vel_score +
-            0.10 * rating_score
-        ) * 100.0
-
-        # Etiqueta cualitativa
-        if score >= 85:
-            label = "viral"
-        elif score >= 60:
-            label = "alta"
-        elif score >= 30:
-            label = "moderada"
-        else:
-            label = "baja"
-
-        # Strings bonitos para el print
-        def _abbr(n):
-            try:
-                n = float(n)
-            except:
-                return "0"
-            if n >= 1_000_000_000:
-                return f"{n/1_000_000_000:.1f}B"
-            if n >= 1_000_000:
-                return f"{n/1_000_000:.1f}M"
-            if n >= 1_000:
-                return f"{n/1_000:.1f}k"
-            return f"{int(n)}"
-
-        details = {
-            "views_str": _abbr(views),
-            "likes_str": _abbr(likes),
-            "vpd_str": _abbr(vpd),
-            "rating_str": f"{rating:.1f}" if rating else "N/D",
-        }
-        return score, label, details
-
     def _crear_panel_izquierdo(self, parent):
         """Crea el panel izquierdo con todos los controles de personalización."""
         left_panel = tk.Frame(parent, bg=self.color_fondo_fijo, width=600)
@@ -399,6 +199,9 @@ class ColorSelectorApp:
         self.color_favorito = tk.StringVar(value="#a4244d")
         self.tema_var = tk.StringVar(value="claro")
         self.cancion_var = tk.StringVar()
+        
+        # Inicializar el color de fondo con el color inicial
+        self.root.after(100, lambda: self.actualizar_color_fondo(self.color_favorito.get()))
         
         self.tema_var.trace('w', self.cambiar_tema)
         
@@ -623,14 +426,6 @@ class ColorSelectorApp:
         )
         self.btn_iniciar.pack(pady=8)
     
-    def _store_popularity(self, value: float):
-        """Guarda la popularidad actual en un JSON en temp para acceso externo."""
-        try:
-            with open(POPULARIDAD_PATH, "w", encoding="utf-8") as f:
-                json.dump({"popularity": float(value)}, f)
-        except Exception:
-            pass
-
     def dibujar_rueda_color(self):
         """Dibuja una rueda de color interactiva tipo Paint."""
         center_x, center_y = 110, 110
@@ -707,6 +502,9 @@ class ColorSelectorApp:
             self.color_display.configure(bg=color_hex)
             self.color_label.configure(text=color_hex)
             
+            # Actualizar el color de fondo de la ventana principal
+            self.actualizar_color_fondo(color_hex)
+            
             if GAME_AVAILABLE and self.game_preview:
                 self.update_game_palette()
     
@@ -740,6 +538,28 @@ class ColorSelectorApp:
         
         if GAME_AVAILABLE and self.game_preview:
             self.update_game_palette()
+    
+    def actualizar_color_fondo(self, color_hex):
+        """Actualiza el color de fondo de la ventana principal según el color seleccionado"""
+        # Convertir hex a RGB
+        r = int(color_hex[1:3], 16)
+        g = int(color_hex[3:5], 16)
+        b = int(color_hex[5:7], 16)
+        
+        # Oscurecer el color para el fondo (multiplicar por 0.6)
+        r_dark = int(r * 0.6)
+        g_dark = int(g * 0.6)
+        b_dark = int(b * 0.6)
+        
+        color_fondo = '#%02x%02x%02x' % (r_dark, g_dark, b_dark)
+        
+        # Actualizar todos los elementos con el nuevo color de fondo
+        self.color_fondo_fijo = color_fondo
+        self.root.configure(bg=color_fondo)
+        self.scrollable_frame.configure(bg=color_fondo)
+        self.main_canvas.configure(bg=color_fondo)
+        self.title_label.configure(bg=color_fondo)
+        self.espacio_label.configure(bg=color_fondo)
     
     def pausar_reanudar_musica(self):
         """Pausa o reanuda la música según el estado actual"""
@@ -820,89 +640,58 @@ class ColorSelectorApp:
             args=(cancion,),
             daemon=True
         )
-        self.popularity_reported = False
-        self.current_popularity = None
-
         self.music_thread.start()
     
     def _download_and_play(self, query):
         """Descarga y reproduce la canción en un hilo separado."""
         try:
+            # Siempre descargar el archivo (más confiable que streams)
+            print("📥 Descargando audio...")
+            temp_dir = tempfile.gettempdir()
+            output_path = os_module.path.join(temp_dir, 'youtube_audio')
+            
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': output_path,
+                'quiet': True,
+                'no_warnings': True,
+            }
+            
+            with YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(f"ytsearch1:{query}", download=True)
+                
+                if "entries" in info and info["entries"]:
+                    entry = info["entries"][0]
+                else:
+                    entry = info
+                
+                title = entry.get('title', 'Desconocido')
+                uploader = entry.get('uploader', 'YouTube')
+                duration = entry.get('duration', 0)
+                downloaded_file = ydl.prepare_filename(entry)
+            
+            if not os_module.path.exists(downloaded_file):
+                import glob
+                possible_files = glob.glob(output_path + '*')
+                if possible_files:
+                    downloaded_file = possible_files[0]
+                else:
+                    raise RuntimeError("No se pudo encontrar el archivo descargado")
+            
+            print(f"✓ Canción encontrada: {title}")
+            print(f"✓ Archivo descargado: {downloaded_file}")
+            self.current_song_file = downloaded_file
+            
+            # Reproducir según el player disponible
             if AUDIO_PLAYER == 'vlc':
-                print("📥 Buscando stream de audio...")
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'quiet': True,
-                    'no_warnings': True,
-                    # Opcional, ayuda a asegurar metadatos completos:
-                    'default_search': 'ytsearch',
-                    'noplaylist': True,
-                }
-                with YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-
-                    if "entries" in info and info["entries"]:
-                        entry = info["entries"][0]
-                    else:
-                        entry = info
-
-                    title = entry.get('title', 'Desconocido')
-                    uploader = entry.get('uploader', 'YouTube')
-                    duration = entry.get('duration', 0)
-                    stream_url = entry.get('url')
-
-                # 👇 imprime la popularidad en la ruta VLC
-                self._print_popularity_once(entry)
-
-                print(f"✓ Canción encontrada: {title}")
-                self._play_vlc_stream(stream_url)
-                self.is_playing = True
-
-                
+                self._play_vlc_file(downloaded_file)
             elif AUDIO_PLAYER == 'pygame':
-                # pygame: descargar archivo
-                print("📥 Descargando audio...")
-                temp_dir = tempfile.gettempdir()
-                output_path = os_module.path.join(temp_dir, 'youtube_audio')
-                
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'outtmpl': output_path,
-                    'quiet': True,
-                    'no_warnings': True,
-                }
-                
-                with YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(f"ytsearch1:{query}", download=True)
-                    
-                    if "entries" in info and info["entries"]:
-                        entry = info["entries"][0]
-                    else:
-                        entry = info
-                    
-                    title = entry.get('title', 'Desconocido')
-                    uploader = entry.get('uploader', 'YouTube')
-                    duration = entry.get('duration', 0)
-                    downloaded_file = ydl.prepare_filename(entry)
-                self._print_popularity_once(entry)
-
-                if not os_module.path.exists(downloaded_file):
-                    import glob
-                    possible_files = glob.glob(output_path + '*')
-                    if possible_files:
-                        downloaded_file = possible_files[0]
-                    else:
-                        raise RuntimeError("No se pudo encontrar el archivo descargado")
-                
-                print(f"✓ Archivo descargado: {downloaded_file}")
-                self.current_song_file = downloaded_file
-                
                 from pygame import mixer
                 mixer.music.load(downloaded_file)
                 mixer.music.play()
-                self.is_playing = True
                 print("✓ Reproduciendo con pygame")
             
+            self.is_playing = True
             self.root.after(0, lambda t=title, u=uploader, d=duration: self._on_music_ready(t, u, d))
             
         except Exception as ex:
@@ -913,41 +702,46 @@ class ColorSelectorApp:
             print(traceback_msg)
             self.root.after(0, lambda msg=error_msg: self._on_music_error(msg))
     
-    def _play_vlc_stream(self, stream_url):
-        """Reproduce stream de audio con VLC"""
+    def _play_vlc_file(self, file_path):
+        """Reproduce un archivo de audio descargado con VLC"""
         import vlc
         import time
         
+        print(f"📂 Archivo a reproducir: {file_path}")
+        print(f"📊 Tamaño: {os_module.path.getsize(file_path)} bytes")
         print(f"🎵 Intentando reproducir con VLC...")
         
         if not self.vlc_instance:
             self.vlc_instance = vlc.Instance('--no-video', '--quiet')
         
-        self.vlc_player = self.vlc_instance.media_player_new()
-        media = self.vlc_instance.media_new(stream_url)
-        self.vlc_player.set_media(media)
+        if self.vlc_player:
+            self.vlc_player.stop()
         
-        # Configurar volumen
+        self.vlc_player = self.vlc_instance.media_player_new()
+        media = self.vlc_instance.media_new(file_path)
+        self.vlc_player.set_media(media)
         self.vlc_player.audio_set_volume(100)
         
         print("▶️ Iniciando reproducción...")
         self.vlc_player.play()
         
-        # Esperar y verificar estado
-        start = time.time()
-        while time.time() - start < 5:
-            state = self.vlc_player.get_state()
-            
-            if state == vlc.State.Playing:
-                print("✓ Reproduciendo correctamente")
-                return
-            elif state == vlc.State.Error:
-                print("✗ Error en reproducción VLC")
-                raise RuntimeError("VLC no pudo reproducir el stream")
-            
-            time.sleep(0.5)
+        time.sleep(2)
+        state = self.vlc_player.get_state()
+        print(f"🔍 Estado VLC: {state}")
         
-        print(f"⚠ Estado final VLC: {self.vlc_player.get_state()}")
+        if state == vlc.State.Ended or state == vlc.State.Error:
+            print("⚠️ VLC falló, intentando con pygame...")
+            try:
+                from pygame import mixer
+                if not mixer.get_init():
+                    mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+                
+                mixer.music.load(file_path)
+                mixer.music.play()
+                print("✅ Reproduciendo con pygame")
+            except Exception as e:
+                print(f"❌ Pygame también falló: {e}")
+                raise RuntimeError("No se pudo reproducir el archivo")
     
     def _on_music_ready(self, title, uploader, duration):
         """Se ejecuta cuando la música está lista"""
@@ -999,8 +793,59 @@ class ColorSelectorApp:
         secs = int(seconds % 60)
         return f"{minutes}:{secs:02d}"
     
+    def _verificar_usuario_existe(self, username):
+        """Verifica si el usuario existe en el archivo encriptado"""
+        import json
+        from cryptography.fernet import Fernet
+        
+        archivo_encriptado = 'usuarios.json.enc'
+        archivo_clave = 'clave.key'
+        
+        try:
+            # Verificar que existen los archivos
+            if not os_module.path.exists(archivo_clave):
+                print("❌ No se encontró el archivo clave.key")
+                return False
+            
+            if not os_module.path.exists(archivo_encriptado):
+                print("❌ No se encontró el archivo usuarios.json.enc")
+                return False
+            
+            # Cargar clave
+            with open(archivo_clave, 'rb') as f:
+                clave = f.read()
+            
+            fernet = Fernet(clave)
+            
+            # Desencriptar archivo de usuarios
+            with open(archivo_encriptado, 'rb') as f:
+                datos_encriptados = f.read()
+            
+            datos_desencriptados = fernet.decrypt(datos_encriptados)
+            usuarios = json.loads(datos_desencriptados.decode('utf-8'))
+            
+            # Verificar si el usuario existe
+            existe = username in usuarios
+            
+            if existe:
+                print(f"✅ Usuario '{username}' encontrado en el sistema")
+            else:
+                print(f"❌ Usuario '{username}' NO encontrado en el sistema")
+                print(f"📋 Usuarios disponibles: {list(usuarios.keys())}")
+            
+            return existe
+            
+        except FileNotFoundError as e:
+            print(f"❌ Archivo no encontrado: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ Error al verificar usuario: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
     def iniciar_juego(self):
-        """Inicia el juego en una ventana independiente y cierra la ventana de personalización."""
+        """Guarda la personalización y inicia el juego."""
         if not GAME_AVAILABLE:
             messagebox.showerror(
                 "Error", 
@@ -1009,31 +854,227 @@ class ColorSelectorApp:
             )
             return
         
+        # Pedir username para guardar personalización
+        username = self._pedir_username()
+        if not username:
+            return  # Usuario canceló
+        
+        # ✅ VERIFICAR que el usuario existe ANTES de continuar
+        if not self._verificar_usuario_existe(username):
+            messagebox.showerror(
+                "Error", 
+                f"El usuario '{username}' no existe en el sistema.\n\n"
+                "Por favor verifica el nombre e intenta de nuevo."
+            )
+            return
+        
         try:
+            # Obtener configuración actual
             color = self.color_favorito.get()
             tema = self.tema_var.get()
             cancion = self.cancion_var.get().strip()
             
+            # Guardar personalización en el perfil del usuario
+            if not self._guardar_personalizacion(username, color, tema, cancion):
+                return  # Error al guardar
+            
+            # Generar paleta
             palette = generate_palette(color, tema)
             
-            # Ocultar la ventana de personalización en lugar de destruirla
             self.root.withdraw()
             
-            # Crear ventana independiente para el juego
             game_window = tk.Toplevel()
             game_window.title("Sistema de Aldeas - Juego")
-            game_window.geometry("500x700")
+            
+            screen_width = game_window.winfo_screenwidth()
+            screen_height = game_window.winfo_screenheight()
+            
+            # ✅ CORREGIDO: Usar las mismas dimensiones que VentanaPrincipal
+            window_width = 600  # Era 500
+            window_height = 750  # Era 700
+            
+            position_x = int((screen_width - window_width) / 2)
+            position_y = int((screen_height - window_height) / 2)
+            
+            game_window.geometry(f"{window_width}x{window_height}+{position_x}+{position_y}")
             game_window.resizable(False, False)
             
-            # Cuando se cierre la ventana del juego, cerrar toda la aplicación
             game_window.protocol("WM_DELETE_WINDOW", lambda: self._cerrar_aplicacion(game_window))
             
-            game_frame = VillageGame(game_window, width=500, height=700, initial_palette=palette)
+            # ✅ CORREGIDO: Pasar todos los parámetros correctamente
+            game_frame = VillageGame(
+                game_window, 
+                width=600,  # Era 500
+                height=750,  # Era 700
+                nivel="FACIL",  # ✅ Agregar nivel
+                frecuencias={  # ✅ Agregar frecuencias por defecto
+                    "⛰️  TORRE DE ARENA": 1.0,
+                    "🪨  TORRE DE ROCA": 2.0,
+                    "💧 TORRE DE AGUA": 1.5,
+                    "🔥 TORRE DE FUEGO": 3.0
+                },
+                initial_palette=palette
+            )
             game_frame.pack()
             
+            if self.is_playing and cancion:
+                print(f"🎵 Música activa: {cancion}")
+            
         except Exception as e:
-            self.root.deiconify()  # Mostrar ventana de personalización si hay error
+            import traceback
+            traceback.print_exc()
+            self.root.deiconify()
             messagebox.showerror("Error", f"No se pudo iniciar el juego:\n{e}")
+    
+    def _pedir_username(self):
+        """Pide el username al usuario para guardar su personalización"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Guardar Personalización")
+        dialog.geometry("400x200")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Centrar el diálogo
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (400 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (200 // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        resultado = {'username': None}
+        
+        # Contenido del diálogo
+        tk.Label(
+            dialog,
+            text="Para guardar tu personalización,\ningresa tu nombre de usuario:",
+            font=("Arial", 12),
+            pady=20
+        ).pack()
+        
+        username_var = tk.StringVar()
+        entry = tk.Entry(
+            dialog,
+            textvariable=username_var,
+            font=("Arial", 12),
+            width=25
+        )
+        entry.pack(pady=10)
+        entry.focus()
+        
+        def aceptar():
+            username = username_var.get().strip()
+            if not username:
+                messagebox.showwarning("Advertencia", "Por favor ingresa tu username", parent=dialog)
+                return
+            resultado['username'] = username
+            dialog.destroy()
+        
+        def cancelar():
+            dialog.destroy()
+        
+        # Botones
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=20)
+        
+        tk.Button(
+            btn_frame,
+            text="Aceptar",
+            command=aceptar,
+            bg='#10B981',
+            fg='white',
+            font=("Arial", 10, "bold"),
+            padx=20,
+            pady=5,
+            cursor="hand2"
+        ).pack(side='left', padx=10)
+        
+        tk.Button(
+            btn_frame,
+            text="Cancelar",
+            command=cancelar,
+            bg='#EF4444',
+            fg='white',
+            font=("Arial", 10, "bold"),
+            padx=20,
+            pady=5,
+            cursor="hand2"
+        ).pack(side='left', padx=10)
+        
+        # Enter para aceptar
+        entry.bind('<Return>', lambda e: aceptar())
+        
+        dialog.wait_window()
+        return resultado['username']
+    
+    def _guardar_personalizacion(self, username, color, tema, cancion):
+        """Guarda la personalización en el archivo de usuarios encriptado"""
+        import json
+        from cryptography.fernet import Fernet
+        
+        archivo_encriptado = 'usuarios.json.enc'
+        archivo_clave = 'clave.key'
+        
+        try:
+            # Cargar clave
+            with open(archivo_clave, 'rb') as f:
+                clave = f.read()
+            
+            fernet = Fernet(clave)
+            
+            # Desencriptar archivo de usuarios
+            with open(archivo_encriptado, 'rb') as f:
+                datos_encriptados = f.read()
+            
+            datos_desencriptados = fernet.decrypt(datos_encriptados)
+            usuarios = json.loads(datos_desencriptados.decode('utf-8'))
+            
+        except FileNotFoundError:
+            messagebox.showerror("Error", "No se encontró el archivo de usuarios o la clave")
+            return False
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al leer usuarios: {e}")
+            return False
+        
+        # El usuario ya fue verificado antes, pero por seguridad revisamos de nuevo
+        if username not in usuarios:
+            messagebox.showerror("Error", f"El usuario '{username}' no existe")
+            return False
+        
+        # Agregar personalización al usuario
+        usuarios[username]['personalizacion'] = {
+            'color': color,
+            'tema': tema,
+            'cancion': cancion
+        }
+        
+        # Encriptar y guardar cambios
+        try:
+            datos_json = json.dumps(usuarios, indent=4, ensure_ascii=False)
+            datos_encriptados = fernet.encrypt(datos_json.encode('utf-8'))
+            
+            with open(archivo_encriptado, 'wb') as f:
+                f.write(datos_encriptados)
+            
+            print(f"✅ Personalización guardada para {username}")
+            print(f"   Color: {color}")
+            print(f"   Tema: {tema}")
+            print(f"   Canción: {cancion or 'Ninguna'}")
+            
+            messagebox.showinfo(
+                "Guardado Exitoso",
+                f"Tu personalización se guardó correctamente.\n\n"
+                f"Usuario: {username}\n"
+                f"Color: {color}\n"
+                f"Tema: {tema}\n"
+                f"Canción: {cancion or 'Ninguna'}"
+            )
+            return True
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Error", f"No se pudo guardar la personalización:\n{e}")
+            return False
     
     def _cerrar_aplicacion(self, game_window):
         """Cierra la ventana del juego y toda la aplicación"""
@@ -1059,7 +1100,7 @@ class ColorSelectorApp:
         preview_title.pack(pady=10)
         
         try:
-            self.game_preview = VillageGame(right_panel, width=500, height=700)
+            self.game_preview = VillageGame(right_panel, width=600, height=750)
             self.game_preview.pack(pady=5)
         except Exception as e:
             error_label = tk.Label(
