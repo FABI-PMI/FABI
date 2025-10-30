@@ -2,8 +2,14 @@
 Sistema de juego de aldeas con cuadrícula.
 Versión completamente en Tkinter (sin Pygame).
 Con sistema de puntos y monedas integrado.
-VERSIÓN CORREGIDA: Avatares visibles y torres disparan hacia abajo
+VERSIÓN CORREGIDA: Avatares disparan proyectiles correctamente
 """
+from ptsSalon import pts as pts_salon
+from ventana_personalizacion import get_popularidad
+from bpm_live import get_bpm_snapshot
+from Login import cargar_usuarios, guardar_usuarios
+from PIL import Image, ImageTk
+
 import tkinter as tk
 from tkinter import Canvas, messagebox
 import random
@@ -562,11 +568,11 @@ class Grid:
 
 class VillageGame(tk.Frame):
     """Clase principal del juego"""
-    def __init__(self, parent, width=600, height=750, nivel="FACIL", frecuencias=None, initial_palette=None):
+    def __init__(self, parent, width=600, height=750, nivel="FACIL", frecuencias=None, initial_palette=None, current_username=None):
         super().__init__(parent, width=width, height=height)
         self.width = width
         self.height = height
-        
+        self.current_username = current_username
         self.nivel = nivel
         self.frecuencias = frecuencias or {}
         self.presupuesto = 600
@@ -588,7 +594,7 @@ class VillageGame(tk.Frame):
         self.juego_activo = False
         self.juego_terminado = False
         self.tiempo_inicio_juego = None
-        self.ultimo_tiempo = time.time()  # ✅ AGREGADO
+        self.ultimo_tiempo = time.time()
         
         self.palette = ColorPalette(initial_palette)
         
@@ -606,7 +612,6 @@ class VillageGame(tk.Frame):
         self.cell_size = 60
         grid_width = self.grid_cols * self.cell_size
         self.grid_x = (self.width - grid_width) // 2
-        print(f"🔍 DEBUG: grid_x = {self.grid_x}")  # ✅ AGREGAR ESTO
         
         self.grid = Grid(self.grid_x, 100, self.grid_rows, self.grid_cols, 
                         self.cell_size, self.palette)
@@ -675,10 +680,12 @@ class VillageGame(tk.Frame):
         # Dibujar avatares
         self.grid.draw_avatares(self.canvas, self.gestor_avatares.get_avatares_activos())
         
-        # ✅ CORREGIDO: Obtener proyectiles correctamente
-        proyectiles_todos = self.gestor_rooks.get_todos_proyectiles()
+        # ✅ Dibujar TODOS los proyectiles (torres + avatares)
+        proyectiles_todos = []
+        proyectiles_todos += self.gestor_rooks.get_todos_proyectiles()
+        proyectiles_todos += self.gestor_avatares.get_todos_proyectiles()
         self.grid.draw_proyectiles(self.canvas, proyectiles_todos)
-        
+
         # Dibujar monedas
         tiempo_actual = time.time()
         monedas = self.sistema_monedas.get_monedas_activas(tiempo_actual)
@@ -699,13 +706,13 @@ class VillageGame(tk.Frame):
             self.draw_stats()
     
     def animate(self):
-        """✅ MÉTODO CORREGIDO: Actualización completa del juego"""
+        """✅ Actualización completa del juego con proyectiles de avatares"""
         if self.juego_activo and not self.juego_terminado:
             tiempo_actual = time.time()
             dt = tiempo_actual - self.ultimo_tiempo
             self.ultimo_tiempo = tiempo_actual
             
-            # Configuración del grid para las torres
+            # Configuración del grid
             grid_config = {
                 'x': self.grid_x,
                 'y': 100,
@@ -715,12 +722,12 @@ class VillageGame(tk.Frame):
             # ✅ Actualizar torres (disparos automáticos)
             self.gestor_rooks.actualizar(dt, tiempo_actual, grid_config)
             
-            # ✅ Actualizar avatares (movimiento) - AHORA CON dt CORRECTO
-            self.gestor_avatares.actualizar(dt, self.grid.torres_grid)
+            # ✅ Actualizar avatares (movimiento, disparos, ataques melee)
+            self.gestor_avatares.actualizar(dt, self.grid.torres_grid, grid_config)
             
-            # ✅ Obtener proyectiles y verificar colisiones
-            proyectiles = self.gestor_rooks.get_todos_proyectiles()
-            self.gestor_avatares.verificar_colisiones_proyectiles(proyectiles)
+            # ✅ Verificar colisiones: proyectiles de torres → avatares
+            proyectiles_torres = self.gestor_rooks.get_todos_proyectiles()
+            self.gestor_avatares.verificar_colisiones_proyectiles(proyectiles_torres)
             
             # Actualizar monedas
             self.sistema_monedas.update(tiempo_actual)
@@ -732,7 +739,7 @@ class VillageGame(tk.Frame):
             
             self.draw()
         
-        self.after(16, self.animate)  # ✅ 60 FPS
+        self.after(16, self.animate)  # 60 FPS
     
     def draw_stats(self):
         stats_avatares = self.gestor_avatares.get_estadisticas()
@@ -789,29 +796,80 @@ class VillageGame(tk.Frame):
         if stats['eliminados'] >= 50:
             self.terminar_juego(victoria=True)
     
+    def _actualizar_pts_salon(self, username: str, nuevo_pts: float):
+        try:
+            usuarios = cargar_usuarios()
+            if not isinstance(usuarios, dict):
+                usuarios = {}
+        except Exception:
+            usuarios = {}
+
+        if username not in usuarios or not isinstance(usuarios[username], dict):
+            usuarios[username] = {}
+
+        actual = float(usuarios[username].get('pts', 0) or 0)
+        mejor = max(actual, float(nuevo_pts))
+        usuarios[username]['pts'] = int(round(mejor))
+        guardar_usuarios(usuarios)
+
     def terminar_juego(self, victoria):
         if self.juego_terminado:
             return
-        
+
         self.juego_terminado = True
         self.gestor_avatares.detener()
-        
+
         stats = self.gestor_avatares.get_estadisticas()
         stats_puntos = self.sistema_puntos.get_estadisticas()
-        
+
         if victoria:
             titulo = "🎉 ¡VICTORIA!"
             mensaje = f"¡Has defendido tu aldea!\n\n"
             mensaje += f"Enemigos eliminados: {stats['eliminados']}\n"
             mensaje += f"Puntos: {stats_puntos['puntos_totales']}\n"
             mensaje += f"Dinero: ${stats_puntos['dinero_spawneado']}"
+
+            try:
+                tempo = float(get_bpm_snapshot(4.0))
+            except Exception:
+                tempo = 0.0
+
+            try:
+                pop = get_popularidad()
+                popularidad = float(pop) if pop is not None else 0.0
+            except Exception:
+                popularidad = 0.0
+
+            avatars_matados = int(stats.get('eliminados', 0))
+            puntos_avatar = float(stats_puntos.get('puntos_totales', 0))
+            limite_maximo = 9999.0
+
+            puntaje_final = pts_salon(tempo, popularidad, avatars_matados, puntos_avatar, limite_maximo)
+
+            if getattr(self, 'current_username', None):
+                try:
+                    self._actualizar_pts_salon(self.current_username, puntaje_final)
+                    print(f"🏆 Salón de la Fama actualizado para @{self.current_username}: {puntaje_final:.0f} pts")
+                except Exception as e:
+                    print(f"⚠ No se pudo actualizar Salón de la Fama: {e}")
+            else:
+                print("ℹ No se actualizó Salón de la Fama (username desconocido).")
+
+            self.after(10, lambda: self._abrir_animacion(
+                ("win0", "win1", "win2"),
+                "¡Defendiste la aldea de los avatars!"
+            ))
+            return
         else:
             titulo = "💀 DERROTA"
-            mensaje = f"Tu aldea fue destruida...\n\n"
+            mensaje = f"Tu aldea fue destruida.\n\n"
             mensaje += f"Enemigos eliminados: {stats['eliminados']}\n"
             mensaje += f"Puntos: {stats_puntos['puntos_totales']}"
-        
-        messagebox.showinfo(titulo, mensaje)
+            self.after(10, lambda: self._abrir_animacion(
+                ("fail0", "fail1", "fail2"),
+                "Tu aldea fue dominada por los avatars."
+            ))
+        return
     
     def on_canvas_click(self, event):
         if self.juego_terminado:
@@ -889,12 +947,20 @@ class VillageGame(tk.Frame):
         self.top_right_btn.hide()
         self.juego_activo = True
         self.tiempo_inicio_juego = time.time()
-        self.ultimo_tiempo = time.time()  # ✅ Reset del tiempo
+        self.ultimo_tiempo = time.time()
         
         self.gestor_avatares.iniciar()
         
         self.draw()
     
+    def _abrir_animacion(self, basenames, mensaje):
+        root = self.winfo_toplevel()
+        try:
+            root.withdraw()
+        except Exception:
+            pass
+        AnimationWindow(master=root, image_basenames=basenames, message_text=mensaje)
+
     def apply_new_palette(self, new_palette_dict):
         """Aplica una nueva paleta de colores al juego en tiempo real"""
         self.palette.update_palette(new_palette_dict)
@@ -913,15 +979,101 @@ class VillageGame(tk.Frame):
         self.draw()
 
 
+class AnimationWindow(tk.Toplevel):
+    def __init__(self, master=None, image_basenames=("win0","win1","win2"), message_text=""):
+        super().__init__(master)
+        self.title("Resultado")
+        self.geometry("800x500")              # tamaño inicial; se puede cambiar
+        self.resizable(True, True)
+
+        import os
+        from PIL import Image, ImageTk  # type: ignore
+
+        # --- Cargar imágenes originales en PIL (no PhotoImage aún) ---
+        self._orig_frames = []
+        exts = [".png", ".gif", ".jpg", ".jpeg"]
+        for base in image_basenames:
+            path = None
+            for ext in exts:
+                p = base + ext
+                if os.path.exists(p):
+                    path = p
+                    break
+            if path:
+                try:
+                    self._orig_frames.append(Image.open(path).convert("RGBA"))
+                except Exception:
+                    pass
+
+        # Contenedor (Label) que SIEMPRE llena toda la ventana
+        self._label = tk.Label(self, borderwidth=0, highlightthickness=0)
+        self._label.pack(fill="both", expand=True)
+
+        # Overlays (NO ocupan layout): mensaje y botón
+        self._msg = tk.Label(self, text=message_text, font=("Arial", 16, "bold"),
+                             bg="#000000", fg="white", padx=10, pady=5)
+        self._msg.place(relx=0.5, rely=0.04, anchor="n")  # arriba, centrado
+
+        self._btn = tk.Button(self, text="Cerrar", command=self._on_close)
+        self._btn.place(relx=0.5, rely=0.96, anchor="s")  # abajo, centrado
+
+        # Estado
+        self._idx = 0
+        self._running = True
+        self._photo_cache = None  # PhotoImage actual
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Redibuja al cambiar tamaño de ventana
+        self.bind("<Configure>", self._on_resize)
+
+        # Arranca animación
+        if not self._orig_frames:
+            self._label.configure(text="No se hallaron imágenes para la animación.")
+        else:
+            self._tick()
+
+    # Crea un PhotoImage ajustado al tamaño actual
+    def _render_current_frame(self):
+        if not self._orig_frames:
+            return
+        w = max(1, self._label.winfo_width())
+        h = max(1, self._label.winfo_height())
+
+        pil_img = self._orig_frames[self._idx].resize((w, h), resample=Image.LANCZOS)
+        self._photo_cache = ImageTk.PhotoImage(pil_img, master=self)
+        self._label.configure(image=self._photo_cache)
+        self._label.image = self._photo_cache
+
+
+    def _tick(self):
+        if not self._running or not self._orig_frames:
+            return
+        self._render_current_frame()
+        self._idx = (self._idx + 1) % len(self._orig_frames)
+        self.after(1000, self._tick)  # cada 1 segundo
+
+    def _on_resize(self, event):
+        # Si está corriendo, re-render del frame actual para llenar toda la ventana
+        if self._running and self._orig_frames:
+            self._render_current_frame()
+
+    def _on_close(self):
+        self._running = False
+        self.destroy()
+
+
+
 class VillageGameWindow:
-    """Ventana del juego"""
-    def __init__(self, nivel="FACIL", frecuencias=None, initial_palette=None):
+    def __init__(self, nivel="FACIL", frecuencias=None, initial_palette=None, current_username=None):
         self.root = tk.Tk()
         self.root.title("Avatars vs Rooks")
         self.root.geometry("600x750")
         self.root.resizable(False, False)
-        
-        self.game = VillageGame(self.root, 600, 750, nivel, frecuencias, initial_palette)
+
+        self.game = VillageGame(
+            self.root, 600, 750, nivel, frecuencias, initial_palette,
+            current_username=current_username
+        )
         self.game.pack()
     
     def run(self):
