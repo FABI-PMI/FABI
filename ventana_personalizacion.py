@@ -7,6 +7,10 @@ from tkinter import messagebox
 import math
 import sys
 import os
+import json
+import tempfile
+
+POPULARIDAD_PATH = os.path.join(tempfile.gettempdir(), "fabi_popularidad.json")
 
 # Configuración de rutas para importaciones
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -102,6 +106,106 @@ import os as os_module
 import threading
 
 
+def get_popularidad():
+    """
+    Lee la popularidad de la canción actual desde el archivo temporal y también la imprime.
+    Retorna float (0–100) o None si aún no hay dato.
+    """
+    try:
+        with open(POPULARIDAD_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        val = float(data.get("popularidad") if "popularidad" in data else data.get("popularity"))
+        print(f"★ Popularidad actual: {val:.0f}/100")
+        return val
+    except Exception:
+        print("⚠ No hay popularidad disponible todavía (reproduce una canción primero).")
+        return None
+
+
+def popularidad_youtube(query_or_url: str) -> float:
+    """
+    Devuelve la popularidad (0–100) y también la imprime.
+    Acepta texto de búsqueda o URL de YouTube.
+    """
+    if not YT_DLP_AVAILABLE:
+        raise ImportError("yt-dlp no está disponible. Instala con: pip install yt-dlp")
+
+    # --- 1) Buscar/extraer metadatos con yt-dlp ---
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'quiet': True,
+        'no_warnings': True,
+        'default_search': 'ytsearch',
+        'noplaylist': True,
+    }
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(
+            query_or_url if query_or_url.startswith(("http://", "https://"))
+            else f"ytsearch1:{query_or_url}",
+            download=False
+        )
+        entry = info["entries"][0] if "entries" in info and info["entries"] else info
+
+    # --- 2) Calcular popularidad (misma lógica que usas en _compute_popularity) ---
+    import math
+    from datetime import datetime, timezone
+
+    views = entry.get("view_count") or 0
+    likes = entry.get("like_count") or 0
+    rating = entry.get("average_rating")  # 1–5 o None
+    upload_date = entry.get("upload_date")  # 'YYYYMMDD' o None
+
+    # Edad en días
+    try:
+        if upload_date:
+            dt = datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=timezone.utc)
+            age_days = max(1, (datetime.now(timezone.utc) - dt).days)
+        else:
+            age_days = 365
+    except Exception:
+        age_days = 365
+
+    vpd = views / max(1, age_days)  # vistas por día
+
+    # Normalizaciones log
+    views_score = min(1.0, math.log10(views + 1) / 7.0)
+    likes_score = min(1.0, math.log10(likes + 1) / 5.0)
+    vel_score   = min(1.0, math.log10(vpd   + 1) / 5.0)
+    if rating is None:
+        rating = 4.0
+    rating_score = max(0.0, min(1.0, (rating - 1.0) / 4.0))
+
+    score = (
+        0.45 * views_score +
+        0.25 * likes_score +
+        0.20 * vel_score +
+        0.10 * rating_score
+    ) * 100.0
+
+    # Etiqueta cualitativa
+    if score >= 85:   label = "viral"
+    elif score >= 60: label = "alta"
+    elif score >= 30: label = "moderada"
+    else:             label = "baja"
+
+    def _abbr(n):
+        try:
+            n = float(n)
+        except:
+            return "0"
+        if n >= 1_000_000_000: return f"{n/1_000_000_000:.1f}B"
+        if n >= 1_000_000:     return f"{n/1_000_000:.1f}M"
+        if n >= 1_000:         return f"{n/1_000:.1f}k"
+        return f"{int(n)}"
+
+    # --- 3) Imprimir y retornar ---
+    print(
+        f"★ Popularidad estimada: {score:.0f}/100 — {label} "
+        f"(vistas≈{_abbr(views)}, likes≈{_abbr(likes)}, v/día≈{_abbr(vpd)}, rating≈{rating:.1f})"
+    )
+    return float(score)
+
+
 class ColorSelectorApp:
     """
     Aplicación principal de personalización del juego.
@@ -115,6 +219,9 @@ class ColorSelectorApp:
         Args:
             root: Ventana principal de Tkinter
         """
+        self.popularity_reported = False
+        self.current_popularity = None  # Popularidad 0–100 de la canción actual
+        
         # Configuración de la ventana principal
         self.root = root
         self.root.title("Personalización - Sistema de Aldeas")
@@ -172,6 +279,107 @@ class ColorSelectorApp:
         # Actualizar paleta del preview si está disponible
         if GAME_AVAILABLE and self.game_preview:
             self.update_game_palette()
+    
+    def _print_popularity_once(self, info: dict):
+        if self.popularity_reported:
+            return
+        score, label, details = self._compute_popularity(info)
+        self.current_popularity = float(score)
+        print(
+            f"★ Popularidad estimada: {score:.0f}/100 — {label} "
+            f"(vistas≈{details['views_str']}, likes≈{details['likes_str']}, "
+            f"v/día≈{details['vpd_str']}, rating≈{details['rating_str']})"
+        )
+        self._store_popularity(self.current_popularity)  # ← guarda para otros procesos
+        self.popularity_reported = True
+    
+    def get_popularidad(self):
+        """
+        Retorna la popularidad (0–100) de la canción actualmente cargada,
+        o None si todavía no hay una calculada.
+        """
+        return self.current_popularity
+    
+    def _compute_popularity(self, info: dict):
+        """Devuelve (score_0_100, etiqueta, detalles_dict) usando campos de yt-dlp."""
+        import math
+        from datetime import datetime, timezone
+
+        views = info.get("view_count") or 0
+        likes = info.get("like_count") or 0
+        rating = info.get("average_rating")  # suele ser 1–5, puede ser None
+        upload_date = info.get("upload_date")  # 'YYYYMMDD' o None
+
+        # Edad del video en días
+        try:
+            if upload_date:
+                dt = datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=timezone.utc)
+                age_days = max(1, (datetime.now(timezone.utc) - dt).days)
+            else:
+                age_days = 365  # suposición conservadora si no hay fecha
+        except Exception:
+            age_days = 365
+
+        # Velocidad de vistas por día
+        vpd = views / max(1, age_days)
+
+        # Normalizaciones logarítmicas para evitar sesgos por órdenes de magnitud
+        # 10^7 vistas ~ score vistas ~ 1.0; 10^5 likes ~ 1.0; 10^5 v/día ~ 1.0
+        views_score = min(1.0, math.log10(views + 1) / 7.0)
+        likes_score = min(1.0, math.log10(likes + 1) / 5.0)
+        vel_score   = min(1.0, math.log10(vpd   + 1) / 5.0)
+        # Rating 1–5 a 0–1; si no hay rating, asumimos 4.0 (~0.75)
+        if rating is None:
+            rating = 4.0
+        rating_score = max(0.0, min(1.0, (rating - 1.0) / 4.0))
+
+        # Ponderación: vistas (45%), likes (25%), velocidad (20%), rating (10%)
+        score = (
+            0.45 * views_score +
+            0.25 * likes_score +
+            0.20 * vel_score +
+            0.10 * rating_score
+        ) * 100.0
+
+        # Etiqueta cualitativa
+        if score >= 85:
+            label = "viral"
+        elif score >= 60:
+            label = "alta"
+        elif score >= 30:
+            label = "moderada"
+        else:
+            label = "baja"
+
+        # Strings bonitos para el print
+        def _abbr(n):
+            try:
+                n = float(n)
+            except:
+                return "0"
+            if n >= 1_000_000_000:
+                return f"{n/1_000_000_000:.1f}B"
+            if n >= 1_000_000:
+                return f"{n/1_000_000:.1f}M"
+            if n >= 1_000:
+                return f"{n/1_000:.1f}k"
+            return f"{int(n)}"
+
+        details = {
+            "views_str": _abbr(views),
+            "likes_str": _abbr(likes),
+            "vpd_str": _abbr(vpd),
+            "rating_str": f"{rating:.1f}" if rating else "N/D",
+        }
+        return score, label, details
+    
+    def _store_popularity(self, value: float):
+        """Guarda la popularidad actual en un JSON en temp para acceso externo."""
+        try:
+            with open(POPULARIDAD_PATH, "w", encoding="utf-8") as f:
+                json.dump({"popularity": float(value)}, f)
+        except Exception:
+            pass
     
     def _crear_panel_izquierdo(self, parent):
         """Crea el panel izquierdo con todos los controles de personalización."""
@@ -640,6 +848,9 @@ class ColorSelectorApp:
             args=(cancion,),
             daemon=True
         )
+        self.popularity_reported = False
+        self.current_popularity = None
+        
         self.music_thread.start()
     
     def _download_and_play(self, query):
@@ -655,6 +866,10 @@ class ColorSelectorApp:
                 'outtmpl': output_path,
                 'quiet': True,
                 'no_warnings': True,
+                # ✅ Agregar user-agent para evitar bloqueos HTTP 403
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                },
             }
             
             with YoutubeDL(ydl_opts) as ydl:
@@ -669,6 +884,9 @@ class ColorSelectorApp:
                 uploader = entry.get('uploader', 'YouTube')
                 duration = entry.get('duration', 0)
                 downloaded_file = ydl.prepare_filename(entry)
+            
+            # Imprimir popularidad
+            self._print_popularity_once(entry)
             
             if not os_module.path.exists(downloaded_file):
                 import glob
@@ -844,88 +1062,6 @@ class ColorSelectorApp:
             traceback.print_exc()
             return False
     
-    def iniciar_juego(self):
-        """Guarda la personalización y inicia el juego."""
-        if not GAME_AVAILABLE:
-            messagebox.showerror(
-                "Error", 
-                "Los módulos del juego no están disponibles.\n\n"
-                "Asegúrate de tener:\n- PaletaColores.py\n- VentanaPrincipal.py"
-            )
-            return
-        
-        # Pedir username para guardar personalización
-        username = self._pedir_username()
-        if not username:
-            return  # Usuario canceló
-        
-        # ✅ VERIFICAR que el usuario existe ANTES de continuar
-        if not self._verificar_usuario_existe(username):
-            messagebox.showerror(
-                "Error", 
-                f"El usuario '{username}' no existe en el sistema.\n\n"
-                "Por favor verifica el nombre e intenta de nuevo."
-            )
-            return
-        
-        try:
-            # Obtener configuración actual
-            color = self.color_favorito.get()
-            tema = self.tema_var.get()
-            cancion = self.cancion_var.get().strip()
-            
-            # Guardar personalización en el perfil del usuario
-            if not self._guardar_personalizacion(username, color, tema, cancion):
-                return  # Error al guardar
-            
-            # Generar paleta
-            palette = generate_palette(color, tema)
-            
-            self.root.withdraw()
-            
-            game_window = tk.Toplevel()
-            game_window.title("Sistema de Aldeas - Juego")
-            
-            screen_width = game_window.winfo_screenwidth()
-            screen_height = game_window.winfo_screenheight()
-            
-            # ✅ CORREGIDO: Usar las mismas dimensiones que VentanaPrincipal
-            window_width = 600  # Era 500
-            window_height = 750  # Era 700
-            
-            position_x = int((screen_width - window_width) / 2)
-            position_y = int((screen_height - window_height) / 2)
-            
-            game_window.geometry(f"{window_width}x{window_height}+{position_x}+{position_y}")
-            game_window.resizable(False, False)
-            
-            game_window.protocol("WM_DELETE_WINDOW", lambda: self._cerrar_aplicacion(game_window))
-            
-            # ✅ CORREGIDO: Pasar todos los parámetros correctamente
-            game_frame = VillageGame(
-                game_window, 
-                width=600,  # Era 500
-                height=750,  # Era 700
-                nivel="FACIL",  # ✅ Agregar nivel
-                frecuencias={  # ✅ Agregar frecuencias por defecto
-                    "⛰️  TORRE DE ARENA": 1.0,
-                    "🪨  TORRE DE ROCA": 2.0,
-                    "💧 TORRE DE AGUA": 1.5,
-                    "🔥 TORRE DE FUEGO": 3.0
-                },
-                initial_palette=palette
-            )
-            game_frame.pack()
-            
-            if self.is_playing and cancion:
-                print(f"🎵 Música activa: {cancion}")
-            
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            self.root.deiconify()
-            messagebox.showerror("Error", f"No se pudo iniciar el juego:\n{e}")
-    
     def _pedir_username(self):
         """Pide el username al usuario para guardar su personalización"""
         dialog = tk.Toplevel(self.root)
@@ -1076,10 +1212,68 @@ class ColorSelectorApp:
             messagebox.showerror("Error", f"No se pudo guardar la personalización:\n{e}")
             return False
     
-    def _cerrar_aplicacion(self, game_window):
-        """Cierra la ventana del juego y toda la aplicación"""
-        game_window.destroy()
-        self.root.destroy()
+    def iniciar_juego(self):
+        """Guarda la personalización y abre el MENÚ (no el juego directamente)"""
+        # Pedir username para guardar personalización
+        username = self._pedir_username()
+        if not username:
+            return  # Usuario canceló
+        
+        # Verificar que el usuario existe
+        if not self._verificar_usuario_existe(username):
+            messagebox.showerror(
+                "Error", 
+                f"El usuario '{username}' no existe en el sistema.\n\n"
+                "Por favor verifica el nombre e intenta de nuevo."
+            )
+            return
+        
+        try:
+            # Obtener configuración actual
+            color = self.color_favorito.get()
+            tema = self.tema_var.get()
+            cancion = self.cancion_var.get().strip()
+            
+            # Guardar personalización en el perfil del usuario
+            if not self._guardar_personalizacion(username, color, tema, cancion):
+                return  # Error al guardar
+            
+            print(f"✅ Personalización guardada para {username}")
+            print(f"   Color: {color}")
+            print(f"   Tema: {tema}")
+            print(f"   Canción: {cancion or 'Ninguna'}")
+            
+            # ✅ CORRECCIÓN: Importar y abrir menú en nueva ventana root
+            from Menu import Menu
+            
+            # Detener música si está reproduciéndose
+            self._stop_music()
+            
+            # Ocultar ventana de personalización
+            self.root.withdraw()
+            
+            # ✅ CREAR NUEVA VENTANA ROOT PARA EL MENÚ (no Toplevel)
+            menu_root = tk.Tk()
+            menu_root.title("Avatars VS Rooks - Menú")
+            
+            # Crear instancia del menú pasando el username
+            menu_app = Menu(menu_root, username=username)
+            
+            # Cuando se cierre el menú, cerrar personalización también
+            def on_menu_close():
+                menu_root.destroy()
+                self.root.destroy()
+            
+            menu_root.protocol("WM_DELETE_WINDOW", on_menu_close)
+            
+            # NO destruir personalización todavía, dejar que el menú tome control
+            # El menú se encargará de todo
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.root.deiconify()
+            messagebox.showerror("Error", f"No se pudo abrir el menú:\n{e}")
     
     def _crear_panel_preview(self, parent):
         """Crea el panel derecho con el preview del juego."""

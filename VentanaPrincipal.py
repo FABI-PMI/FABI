@@ -575,7 +575,7 @@ class VillageGame(tk.Frame):
         self.current_username = current_username
         self.nivel = nivel
         self.frecuencias = frecuencias or {}
-        self.presupuesto = 600
+        self.presupuesto = 350
         self.gestor_rooks = GestorRooks()
         
         # Gestor de avatares
