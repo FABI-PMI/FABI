@@ -125,8 +125,8 @@ class ColorSelectorApp:
         screen_height = root.winfo_screenheight()
         
         # Definir tamaño de la ventana
-        window_width = 1250  # Aumentado para acomodar preview más ancho
-        window_height = 850  # Aumentado para acomodar preview más alto
+        window_width = 1150
+        window_height = 800
         
         # Calcular la posición para centrar la ventana
         position_x = int((screen_width - window_width) / 2)
@@ -805,13 +805,13 @@ class ColorSelectorApp:
             # Crear ventana independiente para el juego
             game_window = tk.Toplevel()
             game_window.title("Sistema de Aldeas - Juego")
-            game_window.geometry("600x750")
+            game_window.geometry("500x700")
             game_window.resizable(False, False)
             
             # Cuando se cierre la ventana del juego, cerrar toda la aplicación
             game_window.protocol("WM_DELETE_WINDOW", lambda: self._cerrar_aplicacion(game_window))
             
-            game_frame = VillageGame(game_window, width=600, height=750, initial_palette=palette)
+            game_frame = VillageGame(game_window, width=500, height=700, initial_palette=palette)
             game_frame.pack()
             
         except Exception as e:
@@ -842,7 +842,7 @@ class ColorSelectorApp:
         preview_title.pack(pady=10)
         
         try:
-            self.game_preview = VillageGame(right_panel, width=600, height=750)
+            self.game_preview = VillageGame(right_panel, width=500, height=700)
             self.game_preview.pack(pady=5)
         except Exception as e:
             error_label = tk.Label(
