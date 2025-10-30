@@ -934,9 +934,10 @@ def ir_a_ventana2(self):
             'es_premium': bool(es_premium),
             'tarjeta': tarjeta if es_premium else "",
             'face_id': self.face_id_registered,
-            'face_id_file': self.face_id_filename if self.face_id_registered else None,  # Solo el nombre del archivo
+            'face_id_file': self.face_id_filename if self.face_id_registered else None,
             'foto_perfil_b64': avatar_b64,
-            'fecha_registro': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'fecha_registro': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'pts': 100  # ← AÑADIR ESTA LÍNEA
         }
         
         # Cargar usuarios existentes
