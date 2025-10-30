@@ -4,6 +4,7 @@ Versión completamente en Tkinter (sin Pygame).
 Con sistema de puntos y monedas integrado.
 VERSIÓN CORREGIDA: Avatares disparan proyectiles correctamente
 """
+import io, base64  # <— para decodificar la foto de perfil
 from ptsSalon import pts as pts_salon
 from ventana_personalizacion import get_popularidad
 from bpm_live import get_bpm_snapshot
@@ -196,16 +197,44 @@ class House:
 
 
 class UserIcon:
-    def __init__(self, x, y, palette):
+    def __init__(self, x, y, palette, size=45):
         self.x = x
         self.y = y
         self.palette = palette
-        self.size = 45
-    
+        self.size = size
+        self._pil_circular = None  # <- guardamos aquí la imagen PIL circular
+        self._photo_tk = None      # <- cache del PhotoImage para este canvas
+
+    def _circularize(self, pil_img, size):
+        pil_img = pil_img.convert("RGBA").resize((size, size), Image.LANCZOS)
+        from PIL import ImageDraw, Image as PILImage
+        mask = PILImage.new("L", (size, size), 0)
+        d = ImageDraw.Draw(mask)
+        d.ellipse((0, 0, size, size), fill=255)
+        pil_img.putalpha(mask)
+        return pil_img
+
+    def load_from_username(self, username):
+        """Carga foto_perfil_b64 del usuario (si existe) y la deja lista en PIL."""
+        self._pil_circular = None
+        self._photo_tk = None
+        if not username:
+            return
+        try:
+            usuarios = cargar_usuarios()
+            datos = usuarios.get(username, {}) if isinstance(usuarios, dict) else {}
+            foto_b64 = datos.get("foto_perfil_b64", "")
+            if foto_b64:
+                img_data = base64.b64decode(foto_b64)
+                from PIL import Image as PILImage
+                pil_img = PILImage.open(io.BytesIO(img_data))
+                self._pil_circular = self._circularize(pil_img, self.size)
+        except Exception:
+            self._pil_circular = None
+
     def draw(self, canvas):
         radius = self.size // 2
-        
-        # Círculo de fondo
+        # borde del círculo
         canvas.create_oval(
             self.x - radius, self.y - radius,
             self.x + radius, self.y + radius,
@@ -213,24 +242,27 @@ class UserIcon:
             outline=self.palette.user_icon_border,
             width=3
         )
-        
-        # Cabeza de la persona
-        canvas.create_oval(
-            self.x - 8, self.y - 13,
-            self.x + 8, self.y + 3,
-            fill=self.palette.user_icon_person,
-            outline=self.palette.user_icon_person
-        )
-        
-        # Cuerpo de la persona
-        canvas.create_arc(
-            self.x - 12, self.y,
-            self.x + 12, self.y + 20,
-            start=0, extent=180,
-            outline=self.palette.user_icon_person,
-            width=4, style='arc'
-        )
 
+        # si hay foto, creamos el PhotoImage con master=canvas y lo dibujamos
+        if self._pil_circular is not None:
+            # (Re)crear el PhotoImage con el master correcto en cada draw
+            self._photo_tk = ImageTk.PhotoImage(self._pil_circular, master=canvas)
+            canvas.create_image(self.x, self.y, image=self._photo_tk)
+        else:
+            # Ícono por defecto
+            canvas.create_oval(
+                self.x - 8, self.y - 13,
+                self.x + 8, self.y + 3,
+                fill=self.palette.user_icon_person,
+                outline=self.palette.user_icon_person
+            )
+            canvas.create_arc(
+                self.x - 12, self.y,
+                self.x + 12, self.y + 20,
+                start=0, extent=180,
+                outline=self.palette.user_icon_person,
+                width=4, style='arc'
+            )
 
 class QuestionButton:
     def __init__(self, x, y, palette, presupuesto=0):
@@ -628,6 +660,7 @@ class VillageGame(tk.Frame):
         
         # UI
         self.user_icon = UserIcon(40, 30, self.palette)
+        self.user_icon.load_from_username(self.current_username)  # <— NUEVO
         self.question_btn = QuestionButton(self.width - 40, 30, self.palette, self.presupuesto)
         
         grid_right_x = self.grid_x + self.grid.width
@@ -652,9 +685,33 @@ class VillageGame(tk.Frame):
         if self.frecuencias:
             self.gestor_rooks.actualizar_frecuencias(self.frecuencias)
         
+       # Botón Salón de la Fama (debajo del avatar)
+        self.btn_salon_fama = tk.Button(
+            self, text="Salón de Fama",
+            command=self.abrir_salon_de_la_fama,
+            bg=self.palette.safe_houses_roof,
+            fg="white",
+            font=("Arial", 11, "bold"),
+            relief="raised",
+            bd=2,
+            cursor="hand2",
+            padx=12,
+            pady=10
+        )
+
         self.draw()
         self.animate()
     
+    def abrir_salon_de_la_fama(self):
+        # Abre el Salón de la Fama en un Toplevel (ventana hija)
+        top = tk.Toplevel(self)
+        top.transient(self.winfo_toplevel())
+        try:
+            from SalonFama import SalonFama
+            SalonFama(top, top_limit=10)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo abrir el Salón de la Fama.\n{e}")
+
     def draw_zones(self):
         self.canvas.create_rectangle(
             self.grid_x - 8, 0, self.grid_x + self.grid_cols * self.cell_size + 8, 60,
@@ -699,6 +756,16 @@ class VillageGame(tk.Frame):
         self.question_btn.draw(self.canvas)
         self.top_right_btn.draw(self.canvas)
         
+        # Re-anclar el botón "Salón de la Fama" en cada draw,
+        # debajo del avatar y con el MISMO tamaño que START.
+        self.canvas.create_window(
+            70, 115,                           # x, y (debajo del círculo del avatar)
+            window=self.btn_salon_fama,
+            width=self.top_right_btn.width + 40,   # 80 px (igual que START)
+            height=self.top_right_btn.height, # 40 px (igual que START)
+            anchor="center"
+        )
+
         for element_btn in self.element_buttons:
             element_btn.draw(self.canvas)
         

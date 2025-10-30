@@ -146,8 +146,9 @@ class SalonFama:
         try:
             logo_path = os.path.join(os.path.dirname(__file__), "Logo.jpg")
             img = Image.open(logo_path).resize((200, 200), Image.LANCZOS)
-            self._logo_img = ImageTk.PhotoImage(img)
+            self._logo_img = ImageTk.PhotoImage(img, master=self.root)  # ← agrega master
             tk.Label(logo_container, image=self._logo_img, bg='#C5C5C5').pack()
+
         except Exception as e:
             print(f"No se pudo cargar Logo.jpg: {e}")
             tk.Label(logo_container, text="🏆", font=('Arial', 60), bg='#C5C5C5').pack()
@@ -222,9 +223,10 @@ class SalonFama:
         foto_frame.pack(side='left', padx=(0, 10))
         
         foto_img = self.cargar_foto_perfil(datos, size=(50, 50))
-        foto_photo = ImageTk.PhotoImage(foto_img)
-        self._foto_perfil_imgs.append(foto_photo)  # Mantener referencia
-        
+        foto_photo = ImageTk.PhotoImage(foto_img, master=self.root)  # ← agrega master
+        self._foto_perfil_imgs.append(foto_photo)  # mantiene referencia
+
+                
         foto_label = tk.Label(foto_frame, image=foto_photo, bg='white')
         foto_label.image = foto_photo
         foto_label.pack()
