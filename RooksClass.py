@@ -11,9 +11,10 @@ class Proyectil:
         self.activo = True
         
     def mover(self):
-        """Mueve el proyectil hacia adelante (derecha)"""
+        """Mueve el proyectil hacia ABAJO (donde están los avatares)"""
         if self.activo:
-            self.posicion[0] += self.velocidad
+            # CAMBIO: Ahora se mueve en Y (hacia abajo)
+            self.posicion[1] += self.velocidad
     
     def colisiona_con(self, objetivo):
         """Verifica colisión con un objetivo (avatar enemigo)"""
@@ -281,8 +282,8 @@ class GestorRooks:
         for proyectil in self.proyectiles_activos[:]:
             proyectil.mover()
             
-            # Remover proyectiles inactivos o fuera de pantalla
-            if not proyectil.activo or proyectil.posicion[0] > 1200:
+            # CAMBIO: Remover proyectiles que salen por abajo (Y > 750)
+            if not proyectil.activo or proyectil.posicion[1] > 750:
                 self.proyectiles_activos.remove(proyectil)
     
     def eliminar_torres_destruidas(self):

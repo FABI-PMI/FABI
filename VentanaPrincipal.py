@@ -2,6 +2,7 @@
 Sistema de juego de aldeas con cuadrícula.
 Versión completamente en Tkinter (sin Pygame).
 Con sistema de puntos y monedas integrado.
+VERSIÓN CORREGIDA: Avatares visibles y torres disparan hacia abajo
 """
 import tkinter as tk
 from tkinter import Canvas, messagebox
@@ -460,6 +461,7 @@ class Grid:
             )
     
     def draw_avatares(self, canvas, avatares):
+        """MÉTODO CORREGIDO: Usa get_color() y get_icono()"""
         for avatar in avatares:
             col, row = avatar.posicion
             x = self.x + col * self.cell_size + self.cell_size // 2
@@ -469,14 +471,14 @@ class Grid:
             canvas.create_oval(
                 x - radius, y - radius,
                 x + radius, y + radius,
-                fill=avatar.color,
+                fill=avatar.get_color(),  # ✅ CORREGIDO: usar método
                 outline='#000000',
                 width=2
             )
             
             canvas.create_text(
                 x, y - 3,
-                text=avatar.emoji,
+                text=avatar.get_icono(),  # ✅ CORREGIDO: usar método
                 font=("Arial", 14)
             )
             
@@ -697,7 +699,7 @@ class VillageGame(tk.Frame):
             tiempo_actual = time.time()
             
             self.gestor_rooks.update(tiempo_actual)
-            self.gestor_avatares.update(tiempo_actual, self.grid.torres_grid)
+            self.gestor_avatares.actualizar(tiempo_actual, self.grid.torres_grid)
             self.sistema_monedas.update(tiempo_actual)
             
             self.gestor_avatares.verificar_colisiones_proyectiles(
@@ -871,6 +873,23 @@ class VillageGame(tk.Frame):
         self.gestor_avatares.iniciar()
         
         self.draw()
+    
+    def apply_new_palette(self, new_palette_dict):
+        """Aplica una nueva paleta de colores al juego en tiempo real"""
+        self.palette.update_palette(new_palette_dict)
+        self.grid.palette = self.palette
+        
+        for house in self.safe_houses:
+            house.palette = self.palette
+        
+        self.user_icon.palette = self.palette
+        self.question_btn.palette = self.palette
+        self.top_right_btn.palette = self.palette
+        
+        for element_btn in self.element_buttons:
+            element_btn.palette = self.palette
+        
+        self.draw()
 
 
 class VillageGameWindow:
@@ -895,5 +914,5 @@ if __name__ == "__main__":
         "💧 TORRE DE AGUA": 2,
         "🔥 TORRE DE FUEGO": 5
     }
-    game_window = VillageGameWindow(nivel="MEDIO", frecuencias=frecuencias_prueba)
+    game_window = VillageGameWindow(nivel="FACIL", frecuencias=frecuencias_prueba)
     game_window.run()
