@@ -7,6 +7,10 @@ from tkinter import messagebox
 import math
 import sys
 import os
+import json
+import tempfile
+POPULARIDAD_PATH = os.path.join(tempfile.gettempdir(), "fabi_popularidad.json")
+
 
 # Configuración de rutas para importaciones
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -101,6 +105,103 @@ import tempfile
 import os as os_module
 import threading
 
+def get_popularidad():
+    """
+    Lee la popularidad de la canción actual desde el archivo temporal y también la imprime.
+    Retorna float (0–100) o None si aún no hay dato.
+    """
+    try:
+        with open(POPULARIDAD_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        val = float(data.get("popularidad") if "popularidad" in data else data.get("popularity"))
+        print(f"★ Popularidad actual: {val:.0f}/100")
+        return val
+    except Exception:
+        print("⚠ No hay popularidad disponible todavía (reproduce una canción primero).")
+        return None
+
+def popularidad_youtube(query_or_url: str) -> float:
+    """
+    Devuelve la popularidad (0–100) y también la imprime.
+    Acepta texto de búsqueda o URL de YouTube.
+    """
+    if not YT_DLP_AVAILABLE:
+        raise ImportError("yt-dlp no está disponible. Instala con: pip install yt-dlp")
+
+    # --- 1) Buscar/extraer metadatos con yt-dlp ---
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'quiet': True,
+        'no_warnings': True,
+        'default_search': 'ytsearch',
+        'noplaylist': True,
+    }
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(
+            query_or_url if query_or_url.startswith(("http://", "https://"))
+            else f"ytsearch1:{query_or_url}",
+            download=False
+        )
+        entry = info["entries"][0] if "entries" in info and info["entries"] else info
+
+    # --- 2) Calcular popularidad (misma lógica que usas en _compute_popularity) ---
+    import math
+    from datetime import datetime, timezone
+
+    views = entry.get("view_count") or 0
+    likes = entry.get("like_count") or 0
+    rating = entry.get("average_rating")  # 1–5 o None
+    upload_date = entry.get("upload_date")  # 'YYYYMMDD' o None
+
+    # Edad en días
+    try:
+        if upload_date:
+            dt = datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=timezone.utc)
+            age_days = max(1, (datetime.now(timezone.utc) - dt).days)
+        else:
+            age_days = 365
+    except Exception:
+        age_days = 365
+
+    vpd = views / max(1, age_days)  # vistas por día
+
+    # Normalizaciones log
+    views_score = min(1.0, math.log10(views + 1) / 7.0)
+    likes_score = min(1.0, math.log10(likes + 1) / 5.0)
+    vel_score   = min(1.0, math.log10(vpd   + 1) / 5.0)
+    if rating is None:
+        rating = 4.0
+    rating_score = max(0.0, min(1.0, (rating - 1.0) / 4.0))
+
+    score = (
+        0.45 * views_score +
+        0.25 * likes_score +
+        0.20 * vel_score +
+        0.10 * rating_score
+    ) * 100.0
+
+    # Etiqueta cualitativa
+    if score >= 85:   label = "viral"
+    elif score >= 60: label = "alta"
+    elif score >= 30: label = "moderada"
+    else:             label = "baja"
+
+    def _abbr(n):
+        try:
+            n = float(n)
+        except:
+            return "0"
+        if n >= 1_000_000_000: return f"{n/1_000_000_000:.1f}B"
+        if n >= 1_000_000:     return f"{n/1_000_000:.1f}M"
+        if n >= 1_000:         return f"{n/1_000:.1f}k"
+        return f"{int(n)}"
+
+    # --- 3) Imprimir y retornar ---
+    print(
+        f"★ Popularidad estimada: {score:.0f}/100 — {label} "
+        f"(vistas≈{_abbr(views)}, likes≈{_abbr(likes)}, v/día≈{_abbr(vpd)}, rating≈{rating:.1f})"
+    )
+    return float(score)
 
 class ColorSelectorApp:
     """
@@ -115,6 +216,10 @@ class ColorSelectorApp:
         Args:
             root: Ventana principal de Tkinter
         """
+        self.popularity_reported = False
+        self.current_popularity = None  # Popularidad 0–100 de la canción actual
+
+
         # Configuración de la ventana principal
         self.root = root
         self.root.title("Personalización - Sistema de Aldeas")
@@ -173,6 +278,101 @@ class ColorSelectorApp:
         if GAME_AVAILABLE and self.game_preview:
             self.update_game_palette()
     
+    def _print_popularity_once(self, info: dict):
+        if self.popularity_reported:
+            return
+        score, label, details = self._compute_popularity(info)
+        self.current_popularity = float(score)
+        print(
+            f"★ Popularidad estimada: {score:.0f}/100 — {label} "
+            f"(vistas≈{details['views_str']}, likes≈{details['likes_str']}, "
+            f"v/día≈{details['vpd_str']}, rating≈{details['rating_str']})"
+        )
+        self._store_popularity(self.current_popularity)  # ← guarda para otros procesos
+        self.popularity_reported = True
+
+
+    def get_popularidad(self):
+        """
+        Retorna la popularidad (0–100) de la canción actualmente cargada,
+        o None si todavía no hay una calculada.
+        """
+        return self.current_popularity
+
+    
+    def _compute_popularity(self, info: dict):
+        """Devuelve (score_0_100, etiqueta, detalles_dict) usando campos de yt-dlp."""
+        import math
+        from datetime import datetime, timezone
+
+        views = info.get("view_count") or 0
+        likes = info.get("like_count") or 0
+        rating = info.get("average_rating")  # suele ser 1–5, puede ser None
+        upload_date = info.get("upload_date")  # 'YYYYMMDD' o None
+
+        # Edad del video en días
+        try:
+            if upload_date:
+                dt = datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=timezone.utc)
+                age_days = max(1, (datetime.now(timezone.utc) - dt).days)
+            else:
+                age_days = 365  # suposición conservadora si no hay fecha
+        except Exception:
+            age_days = 365
+
+        # Velocidad de vistas por día
+        vpd = views / max(1, age_days)
+
+        # Normalizaciones logarítmicas para evitar sesgos por órdenes de magnitud
+        # 10^7 vistas ~ score vistas ~ 1.0; 10^5 likes ~ 1.0; 10^5 v/día ~ 1.0
+        views_score = min(1.0, math.log10(views + 1) / 7.0)
+        likes_score = min(1.0, math.log10(likes + 1) / 5.0)
+        vel_score   = min(1.0, math.log10(vpd   + 1) / 5.0)
+        # Rating 1–5 a 0–1; si no hay rating, asumimos 4.0 (~0.75)
+        if rating is None:
+            rating = 4.0
+        rating_score = max(0.0, min(1.0, (rating - 1.0) / 4.0))
+
+        # Ponderación: vistas (45%), likes (25%), velocidad (20%), rating (10%)
+        score = (
+            0.45 * views_score +
+            0.25 * likes_score +
+            0.20 * vel_score +
+            0.10 * rating_score
+        ) * 100.0
+
+        # Etiqueta cualitativa
+        if score >= 85:
+            label = "viral"
+        elif score >= 60:
+            label = "alta"
+        elif score >= 30:
+            label = "moderada"
+        else:
+            label = "baja"
+
+        # Strings bonitos para el print
+        def _abbr(n):
+            try:
+                n = float(n)
+            except:
+                return "0"
+            if n >= 1_000_000_000:
+                return f"{n/1_000_000_000:.1f}B"
+            if n >= 1_000_000:
+                return f"{n/1_000_000:.1f}M"
+            if n >= 1_000:
+                return f"{n/1_000:.1f}k"
+            return f"{int(n)}"
+
+        details = {
+            "views_str": _abbr(views),
+            "likes_str": _abbr(likes),
+            "vpd_str": _abbr(vpd),
+            "rating_str": f"{rating:.1f}" if rating else "N/D",
+        }
+        return score, label, details
+
     def _crear_panel_izquierdo(self, parent):
         """Crea el panel izquierdo con todos los controles de personalización."""
         left_panel = tk.Frame(parent, bg=self.color_fondo_fijo, width=600)
@@ -423,6 +623,14 @@ class ColorSelectorApp:
         )
         self.btn_iniciar.pack(pady=8)
     
+    def _store_popularity(self, value: float):
+        """Guarda la popularidad actual en un JSON en temp para acceso externo."""
+        try:
+            with open(POPULARIDAD_PATH, "w", encoding="utf-8") as f:
+                json.dump({"popularity": float(value)}, f)
+        except Exception:
+            pass
+
     def dibujar_rueda_color(self):
         """Dibuja una rueda de color interactiva tipo Paint."""
         center_x, center_y = 110, 110
@@ -612,36 +820,44 @@ class ColorSelectorApp:
             args=(cancion,),
             daemon=True
         )
+        self.popularity_reported = False
+        self.current_popularity = None
+
         self.music_thread.start()
     
     def _download_and_play(self, query):
         """Descarga y reproduce la canción en un hilo separado."""
         try:
             if AUDIO_PLAYER == 'vlc':
-                # VLC: reproducir stream directamente sin descargar
                 print("📥 Buscando stream de audio...")
                 ydl_opts = {
                     'format': 'bestaudio/best',
                     'quiet': True,
                     'no_warnings': True,
+                    # Opcional, ayuda a asegurar metadatos completos:
+                    'default_search': 'ytsearch',
+                    'noplaylist': True,
                 }
-                
                 with YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-                    
+
                     if "entries" in info and info["entries"]:
                         entry = info["entries"][0]
                     else:
                         entry = info
-                    
+
                     title = entry.get('title', 'Desconocido')
                     uploader = entry.get('uploader', 'YouTube')
                     duration = entry.get('duration', 0)
                     stream_url = entry.get('url')
-                
+
+                # 👇 imprime la popularidad en la ruta VLC
+                self._print_popularity_once(entry)
+
                 print(f"✓ Canción encontrada: {title}")
                 self._play_vlc_stream(stream_url)
                 self.is_playing = True
+
                 
             elif AUDIO_PLAYER == 'pygame':
                 # pygame: descargar archivo
@@ -668,7 +884,8 @@ class ColorSelectorApp:
                     uploader = entry.get('uploader', 'YouTube')
                     duration = entry.get('duration', 0)
                     downloaded_file = ydl.prepare_filename(entry)
-                
+                self._print_popularity_once(entry)
+
                 if not os_module.path.exists(downloaded_file):
                     import glob
                     possible_files = glob.glob(output_path + '*')
