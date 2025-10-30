@@ -147,6 +147,63 @@ def main():
             print(f"{0.0:.1f}" if bpm_to_print is None else f"{bpm_to_print:.1f}")
             sys.stdout.flush()
             next_tick += PRINT_INTERVAL
+            
+# --- NUEVO: medición rápida de BPM (snapshot) ---
+def get_bpm_snapshot(duration_sec=4.0):
+    """
+    Abre una InputStream por unos segundos y devuelve el BPM mediano detectado.
+    Si hay silencio o no se logra medir, devuelve 0.0.
+    """
+    import numpy as np, time
+    from collections import deque
+    import sounddevice as sd
+
+    dev = sd.query_devices(OUTPUT_DEVICE_INDEX)
+    in_ch = max(1, min(2, dev['max_input_channels']))
+    sd.default.device = (OUTPUT_DEVICE_INDEX, None)
+    sd.default.samplerate = SR
+
+    ring = deque(maxlen=int(WINDOW_SEC * SR))
+    last_bpms = deque(maxlen=SMOOTH_N)
+
+    start = time.time()
+    def _cb(indata, frames, time_info, status):
+        x = indata if indata.ndim == 1 else np.mean(indata, axis=1)
+        ring.extend(x.astype(np.float32, copy=False))
+
+    with sd.InputStream(device=OUTPUT_DEVICE_INDEX, channels=in_ch,
+                        samplerate=SR, dtype='float32',
+                        blocksize=0, callback=_cb):
+        while time.time() - start < duration_sec:
+            time.sleep(0.05)
+
+    if len(ring) < int(WARMUP_SEC * SR):
+        return 0.0
+
+    y = np.asarray(ring, dtype=np.float32)
+    ac = autocorr(downsample(moving_rms(y, int(max(1, ENV_WIN_SEC * SR))), SR, PROC_FS))
+    if ac is None:
+        return 0.0
+
+    Lmin = max(1, lag_from_bpm(BPM_MAX, PROC_FS))
+    Lmax = min(len(ac)-1, lag_from_bpm(BPM_MIN, PROC_FS))
+    if Lmax <= Lmin:
+        return 0.0
+
+    L0 = Lmin + int(np.argmax(ac[Lmin:Lmax+1]))
+    cands = set(max(1, min(len(ac)-1, L0+d)) for d in (-2,-1,0,1,2))
+
+    best = (-1.0, None)
+    for L in sorted(cands):
+        for k in (1,2,3,4):
+            Lk = max(1, int(round(L / k)))
+            bpm = bpm_from_lag(Lk, PROC_FS)
+            if not (BPM_MIN <= bpm <= BPM_MAX):
+                continue
+            sc = comb_score(ac, Lk)
+            if sc > best[0]:
+                best = (sc, bpm)
+    return float(best[1]) if best[1] is not None else 0.0
 
 if __name__ == "__main__":
     try:

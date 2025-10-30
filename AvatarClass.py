@@ -8,6 +8,33 @@ class EstadoAccion:
         self.atacar = atacar
         self.mover = mover
 
+class ProyectilAvatar:
+    def __init__(self, x, y, damage, tipo="Avatar", velocidad=180.0, color="#2222FF"):
+        self.posicion = [float(x), float(y)]
+        self.damage = int(damage)
+        self.tipo = tipo
+        self.velocidad = float(velocidad)   # px/s (hacia ARRIBA)
+        self.color = color
+        self.activo = True
+    
+    def mover(self, dt):
+        if not self.activo:
+            return
+        self.posicion[1] -= self.velocidad * dt  # avanza hacia arriba
+        if self.posicion[1] < 80:  # fuera de tablero (por encima del grid)
+            self.activo = False
+    
+    def desactivar(self):
+        self.activo = False
+
+def _color_proyectil_por_avatar(nombre):
+    mapa = {
+        "Flechador": "#4169E1",
+        "Escudero":  "#808080",
+        "Leñador":   "#8B4513",
+        "Caníbal":   "#DC143C",
+    }
+    return mapa.get(nombre, "#000000")
 
 class Avatar:
     """Clase base para todos los avatares/enemigos"""
@@ -166,7 +193,9 @@ class GestorAvatares:
         self.grid_cols = grid_cols
         self.nivel = nivel
         self.sistema_puntos = sistema_puntos
-        
+        self.proyectiles = []
+        self._grid_cfg = {"x": 150, "y": 100, "cell_size": 60}
+
         # Configuración de spawning
         self.tiempo_inicio = None
         self.ultimo_spawn = 0
@@ -212,7 +241,114 @@ class GestorAvatares:
     def detener(self):
         """Detiene el sistema de spawning"""
         self.activo = False
-    
+        
+    def _centro_avatar_px(self, avatar):
+        cx = self._grid_cfg["x"] + avatar.posicion[0]*self._grid_cfg["cell_size"] + self._grid_cfg["cell_size"]//2
+        cy = self._grid_cfg["y"] + avatar.posicion[1]*self._grid_cfg["cell_size"] + self._grid_cfg["cell_size"]//2
+        return float(cx), float(cy)
+
+    def _disparar_proyectil(self, avatar):
+        """Dispara un proyectil desde el avatar"""
+        x, y = self._centro_avatar_px(avatar)
+        proy = ProyectilAvatar(
+            x, y,
+            damage=avatar.ataque,
+            tipo=avatar.nombre,
+            velocidad=180.0,
+            color=_color_proyectil_por_avatar(avatar.nombre)
+        )
+        self.proyectiles.append(proy)
+        print(f"   🔫 {avatar.nombre} dispara proyectil (daño: {avatar.ataque})")
+
+    def _proyectil_colisiona_con_torre(self, proyectil, row, col):
+        """Verifica si un proyectil colisiona con una torre"""
+        cell = self._grid_cfg["cell_size"]
+        cx = self._grid_cfg["x"] + col*cell + cell//2
+        cy = self._grid_cfg["y"] + row*cell + cell//2
+        dx = proyectil.posicion[0] - cx
+        dy = proyectil.posicion[1] - cy
+        return math.hypot(dx, dy) < 40
+
+    def _actualizar_proyectiles(self, dt, torres_grid):
+        """Actualiza posición de proyectiles y verifica colisiones con torres"""
+        # Mover proyectiles
+        for p in self.proyectiles:
+            if p.activo:
+                p.mover(dt)
+        
+        # Verificar colisiones
+        for p in list(self.proyectiles):
+            if not p.activo:
+                continue
+            for (row, col), torre in torres_grid.items():
+                if not torre.activa:
+                    continue
+                if self._proyectil_colisiona_con_torre(p, row, col):
+                    torre.recibir_damage(p.damage)
+                    print(f"   💥 {p.tipo} impacta torre de {torre.tipo} (-{p.damage} HP) → {torre.vida_actual}/{torre.vida_maxima}")
+                    p.desactivar()
+                    break
+        
+        # Limpiar proyectiles inactivos
+        self.proyectiles = [p for p in self.proyectiles if p.activo]
+
+    def get_todos_proyectiles(self):
+        """Retorna todos los proyectiles activos"""
+        return list(self.proyectiles)
+
+    def actualizar(self, dt, torres_grid, grid_config=None):
+        """Actualiza el estado de todos los avatares y proyectiles"""
+        if not self.activo:
+            return
+        
+        if grid_config:
+            self._grid_cfg = dict(grid_config)
+
+        tiempo_actual = time.time()
+        
+        # Verificar si es momento de spawnear
+        tiempo_desde_ultimo = tiempo_actual - self.ultimo_spawn
+        tiempo_spawn_necesario = self.calcular_tiempo_spawn(tiempo_actual - self.tiempo_inicio)
+        
+        if tiempo_desde_ultimo >= tiempo_spawn_necesario:
+            self.spawn_avatar()
+            self.ultimo_spawn = tiempo_actual
+
+        avatares_a_remover = []
+        
+        for avatar in self.avatares:
+            if not avatar.esta_vivo():
+                if avatar not in avatares_a_remover:
+                    avatares_a_remover.append(avatar)
+                continue
+
+            if avatar.posicion[1] <= 0:
+                if avatar not in avatares_a_remover:
+                    avatares_a_remover.append(avatar)
+                    self.avatares_llegaron_meta += 1
+                continue
+
+            torre_en_frente = self.hay_torre_en_frente(avatar, torres_grid)
+            acciones = avatar.step(dt, torre_en_frente)
+
+            # 🔫 Disparo para tipos de rango (Flechador, Escudero)
+            if acciones.atacar and not avatar.solo_torre_en_frente:
+                self._disparar_proyectil(avatar)
+            
+            # 🗡️ Golpe sólo si está en frente (Leñador, Caníbal)
+            if acciones.atacar and avatar.solo_torre_en_frente and torre_en_frente:
+                self.atacar_torre(avatar, torres_grid)
+
+            if acciones.mover and not torre_en_frente:
+                avatar.mover_hacia_arriba()
+
+        for avatar in avatares_a_remover:
+            if avatar in self.avatares:
+                self.avatares.remove(avatar)
+
+        # 🔄 Actualizar proyectiles y verificar colisiones con torres
+        self._actualizar_proyectiles(dt, torres_grid)
+
     def calcular_tiempo_spawn(self, tiempo_transcurrido):
         """Calcula el tiempo entre spawns usando distribución exponencial"""
         config = self.config_nivel[self.nivel]
@@ -247,59 +383,6 @@ class GestorAvatares:
         
         print(f"   🔵 {avatar.nombre} spawneado en columna {col} (Total: {len(self.avatares)} activos)")
     
-    def actualizar(self, dt, torres_grid):
-        """
-        Actualiza todos los avatares
-        """
-        if not self.activo:
-            return
-        
-        tiempo_actual = time.time()
-        
-        # Verificar si es momento de spawnear
-        tiempo_desde_ultimo = tiempo_actual - self.ultimo_spawn
-        tiempo_spawn_necesario = self.calcular_tiempo_spawn(tiempo_actual - self.tiempo_inicio)
-        
-        if tiempo_desde_ultimo >= tiempo_spawn_necesario:
-            self.spawn_avatar()
-            self.ultimo_spawn = tiempo_actual
-        
-        # Lista de avatares a remover
-        avatares_a_remover = []
-        
-        # Actualizar cada avatar
-        for avatar in self.avatares:
-            # Si está muerto, solo marcarlo (YA fue contado al morir)
-            if not avatar.esta_vivo():
-                if avatar not in avatares_a_remover:
-                    avatares_a_remover.append(avatar)
-                continue
-            
-            # Si llegó a la meta, contar UNA VEZ
-            if avatar.posicion[1] <= 0:
-                if avatar not in avatares_a_remover:
-                    avatares_a_remover.append(avatar)
-                    self.avatares_llegaron_meta += 1
-                continue
-            
-            # Verificar si hay torre en frente
-            torre_en_frente = self.hay_torre_en_frente(avatar, torres_grid)
-            
-            # Obtener acciones del avatar
-            acciones = avatar.step(dt, torre_en_frente)
-            
-            # Ejecutar acciones
-            if acciones.atacar and torre_en_frente:
-                self.atacar_torre(avatar, torres_grid)
-            
-            if acciones.mover and not torre_en_frente:
-                avatar.mover_hacia_arriba()
-        
-        # Remover avatares
-        for avatar in avatares_a_remover:
-            if avatar in self.avatares:
-                self.avatares.remove(avatar)
-    
     def hay_torre_en_frente(self, avatar, torres_grid):
         """Verifica si hay una torre activa en frente del avatar"""
         col, row = avatar.posicion
@@ -311,7 +394,7 @@ class GestorAvatares:
         return False
     
     def atacar_torre(self, avatar, torres_grid):
-        """El avatar ataca la torre en frente"""
+        """El avatar ataca la torre en frente (melee)"""
         col, row = avatar.posicion
         
         if row > 0:
@@ -325,10 +408,10 @@ class GestorAvatares:
     
     def verificar_colisiones_proyectiles(self, proyectiles):
         """
-        ✅ CORREGIDO: Remueve proyectiles inmediatamente al colisionar
+        Verifica colisiones entre proyectiles de torres y avatares
         """
         colisiones = []
-        proyectiles_a_remover = []  # ✅ NUEVO: Lista para remover
+        proyectiles_a_remover = []
         
         gestor_puntos = self.sistema_puntos
         
@@ -347,7 +430,7 @@ class GestorAvatares:
                     # Aplicar daño
                     puntos_ganados = avatar.recibir_daño(proyectil.damage, gestor_puntos)
                     
-                    # ✅ Marcar proyectil para remover
+                    # Marcar proyectil para remover
                     proyectil.desactivar()
                     if proyectil not in proyectiles_a_remover:
                         proyectiles_a_remover.append(proyectil)
@@ -367,7 +450,7 @@ class GestorAvatares:
                     
                     break
         
-        # ✅ Remover proyectiles que colisionaron
+        # Remover proyectiles que colisionaron
         for proyectil in proyectiles_a_remover:
             if proyectil in proyectiles:
                 proyectiles.remove(proyectil)
@@ -376,10 +459,10 @@ class GestorAvatares:
     
     def proyectil_colisiona_con_avatar(self, proyectil, avatar):
         """
-        ✅ CORREGIDO: Usa grid_x = 150
+        Verifica si un proyectil colisiona con un avatar
         """
         cell_size = 60
-        grid_x = 150  # ✅ CORREGIDO: Era 90, ahora es 150
+        grid_x = 150
         grid_y = 100
         
         # Convertir posición del avatar [col, row] a píxeles
