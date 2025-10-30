@@ -9,6 +9,8 @@ import random
 import time
 import threading
 from RooksClass import RookArena, RookRoca, RookAgua, RookFuego, GestorRooks
+from AvatarClass import GestorAvatares
+from MoneySystem import SistemaPuntos, SistemaMonedas
 
 
 class ColorPalette:
@@ -96,6 +98,20 @@ class House:
         self.palette = palette
         self.is_invader = is_invader
         self.size = 35
+        
+        # ========== NUEVOS ATRIBUTOS ==========
+        self.vida_maxima = 100
+        self.vida_actual = 100
+    
+    # ========== NUEVOS MÉTODOS ==========
+    def recibir_daño(self, daño):
+        """Reduce la vida de la casa"""
+        self.vida_actual = max(0, self.vida_actual - daño)
+    
+    def esta_destruida(self):
+        """Verifica si la casa está destruida"""
+        return self.vida_actual <= 0
+    # ===================================
     
     def get_colors(self):
         """Obtiene los colores según el tipo de casa"""
@@ -145,6 +161,31 @@ class House:
             self.x + 14, self.y + 25,
             fill=colors['window'], outline=colors['window']
         )
+        
+        # ========== BARRA DE VIDA DE LA CASA ==========
+        if not self.is_invader:  # Solo para casas seguras
+            vida_percent = self.vida_actual / self.vida_maxima
+            bar_width = self.size
+            bar_height = 4
+            bar_x = self.x
+            bar_y = self.y + self.size + 3
+            
+            # Fondo rojo
+            canvas.create_rectangle(
+                bar_x, bar_y,
+                bar_x + bar_width, bar_y + bar_height,
+                fill='#cc0000',
+                outline='#333333'
+            )
+            
+            # Vida actual verde
+            if vida_percent > 0:
+                canvas.create_rectangle(
+                    bar_x, bar_y,
+                    bar_x + (bar_width * vida_percent), bar_y + bar_height,
+                    fill='#00cc00',
+                    outline=''
+                )
 
 
 class UserIcon:
@@ -481,6 +522,95 @@ class Grid:
                 outline=''
             )
     
+    # ========== NUEVOS MÉTODOS ==========
+    def draw_avatares(self, canvas, avatares):
+        """Dibuja los avatares en el grid"""
+        for avatar in avatares:
+            col, row = avatar.posicion
+            x = self.x + col * self.cell_size + self.cell_size // 2
+            y = self.y + row * self.cell_size + self.cell_size // 2
+            
+            # Círculo del avatar
+            radius = 15
+            canvas.create_oval(
+                x - radius, y - radius,
+                x + radius, y + radius,
+                fill=avatar.color,
+                outline='#000000',
+                width=2
+            )
+            
+            # Emoji del avatar
+            canvas.create_text(
+                x, y - 3,
+                text=avatar.emoji,
+                font=("Arial", 14)
+            )
+            
+            # Barra de vida
+            vida_percent = avatar.vida / avatar.vida_maxima if avatar.vida_maxima > 0 else 0
+            bar_width = 25
+            bar_height = 3
+            bar_x = x - bar_width // 2
+            bar_y = y + radius + 2
+            
+            # Fondo rojo
+            canvas.create_rectangle(
+                bar_x, bar_y,
+                bar_x + bar_width, bar_y + bar_height,
+                fill='#cc0000',
+                outline=''
+            )
+            
+            # Vida actual verde
+            if vida_percent > 0:
+                canvas.create_rectangle(
+                    bar_x, bar_y,
+                    bar_x + (bar_width * vida_percent), bar_y + bar_height,
+                    fill='#00cc00',
+                    outline=''
+                )
+    
+    def draw_proyectiles(self, canvas, proyectiles):
+        """Dibuja los proyectiles activos"""
+        for proyectil in proyectiles:
+            if proyectil.activo:
+                x, y = proyectil.posicion
+                radius = 5
+                canvas.create_oval(
+                    x - radius, y - radius,
+                    x + radius, y + radius,
+                    fill=proyectil.color,
+                    outline='#000000',
+                    width=1
+                )
+    
+    def draw_monedas(self, canvas, monedas):
+        """Dibuja las monedas activas"""
+        for moneda in monedas:
+            col, row = moneda['posicion']
+            x = self.x + col * self.cell_size + self.cell_size // 2
+            y = self.y + row * self.cell_size + self.cell_size // 2
+            
+            # Círculo dorado
+            radius = 12
+            canvas.create_oval(
+                x - radius, y - radius,
+                x + radius, y + radius,
+                fill='#FFD700',
+                outline='#FFA500',
+                width=2
+            )
+            
+            # Símbolo $
+            canvas.create_text(
+                x, y,
+                text="$",
+                font=("Arial", 14, "bold"),
+                fill='#8B4513'
+            )
+    # ===================================
+    
     def get_cell_from_coords(self, x, y):
         """Obtiene la celda (row, col) de las coordenadas del click"""
         if x < self.x or x > self.x + self.width:
@@ -512,10 +642,29 @@ class VillageGame(tk.Frame):
         self.frecuencias = frecuencias or {}
         self.presupuesto = 600  # Presupuesto inicial
         self.gestor_rooks = GestorRooks()  # Gestor de torres
+        
+        # ========== NUEVAS LÍNEAS ========== 
+        # Gestor de avatares (enemigos)
+        self.gestor_avatares = GestorAvatares(grid_cols=5, nivel=nivel)
+        
+        # Sistema de puntos y monedas
+        self.sistema_puntos = SistemaPuntos()
+        self.sistema_monedas = SistemaMonedas(grid_cols=5, grid_rows=9)
+        self.sistema_puntos.sistema_monedas = self.sistema_monedas
+        self.gestor_avatares.sistema_puntos = self.sistema_puntos
+        # ===================================
+        
         self.esperando_colocacion = None  # Para el sistema de colocación
         self.torre_a_colocar = None
         self.prueba_activa = False
         self.tiempo_inicio_prueba = None
+        
+        # ========== NUEVAS LÍNEAS ========== 
+        # Estado del juego
+        self.juego_activo = False
+        self.juego_terminado = False
+        self.tiempo_inicio_juego = None
+        # ===================================
         
         # Sistema de colores
         self.palette = ColorPalette(initial_palette)
@@ -628,6 +777,19 @@ class VillageGame(tk.Frame):
         # Dibujar cuadrícula y torres
         self.grid.draw(self.canvas)
         
+        # ========== NUEVAS LÍNEAS ========== 
+        # Dibujar avatares
+        self.grid.draw_avatares(self.canvas, self.gestor_avatares.get_avatares_activos())
+        
+        # Dibujar proyectiles
+        self.grid.draw_proyectiles(self.canvas, self.gestor_rooks.proyectiles_activos)
+        
+        # Dibujar monedas
+        tiempo_actual = time.time()
+        monedas = self.sistema_monedas.get_monedas_activas(tiempo_actual)
+        self.grid.draw_monedas(self.canvas, monedas)
+        # ===================================
+        
         # Dibujar casas seguras
         for house in self.safe_houses:
             house.draw(self.canvas)
@@ -641,22 +803,160 @@ class VillageGame(tk.Frame):
         # Dibujar botones de elementos
         for element_btn in self.element_buttons:
             element_btn.draw(self.canvas)
+        
+        # ========== NUEVA LÍNEA ========== 
+        # Dibujar estadísticas si el juego está activo
+        if self.juego_activo:
+            self.draw_stats()
+        # ===================================
     
     def animate(self):
         """Método para animaciones y actualización del juego"""
-        # Actualizar torres si hay una prueba activa
-        if self.prueba_activa and self.tiempo_inicio_prueba:
-            tiempo_actual = time.time() - self.tiempo_inicio_prueba
+        # ========== CÓDIGO ACTUALIZADO ========== 
+        # Actualizar torres y avatares si el juego está activo
+        if self.juego_activo and not self.juego_terminado:
+            tiempo_actual = time.time()
+            
+            # Actualizar torres
             self.gestor_rooks.update(tiempo_actual)
             
-            # Redibujar para mostrar cambios
+            # Actualizar avatares
+            self.gestor_avatares.update(tiempo_actual, self.grid.torres_grid)
+            
+            # Actualizar monedas
+            self.sistema_monedas.update(tiempo_actual)
+            
+            # Verificar colisiones
+            self.gestor_avatares.verificar_colisiones_proyectiles(
+                self.gestor_rooks.proyectiles_activos
+            )
+            
+            # Verificar avatares que llegaron a las casas
+            self.verificar_avatares_en_casas()
+            
+            # Limpiar torres destruidas
+            self.limpiar_torres_destruidas()
+            
+            # Verificar condiciones de victoria/derrota
+            self.verificar_fin_juego()
+            
+            # Redibujar
             self.draw()
+        # ===================================
         
         # Continuar el loop
-        self.after(33, self.animate)  # ~30 FPS
+        self.after(100, self.animate)  # 10 FPS
+    
+    # ========== NUEVAS FUNCIONES ========== 
+    def draw_stats(self):
+        """Dibuja estadísticas del juego en la zona invasora"""
+        stats_avatares = self.gestor_avatares.get_estadisticas()
+        stats_puntos = self.sistema_puntos.get_estadisticas()
+        
+        # Línea 1: Estadísticas de avatares
+        texto1 = f"👾: {stats_avatares['spawneados']} | 💀: {stats_avatares['eliminados']} | 🏠: {stats_avatares['llegaron_meta']} | ⚡: {stats_avatares['activos']}"
+        
+        # Línea 2: Sistema de puntos y monedas
+        progreso = int(stats_puntos['progreso_spawn'] * 100)
+        texto2 = f"🎯 Puntos: {stats_puntos['puntos_totales']} | 💰 Próximo: {stats_puntos['puntos_para_spawn']}/30 ({progreso}%) | 💵 ${stats_puntos['dinero_spawneado']}"
+        
+        self.canvas.create_text(
+            self.width // 2, 710,
+            text=texto1,
+            font=("Arial", 9, "bold"),
+            fill="white"
+        )
+        
+        self.canvas.create_text(
+            self.width // 2, 730,
+            text=texto2,
+            font=("Arial", 9, "bold"),
+            fill="#FFD700"
+        )
+    
+def verificar_avatares_en_casas(self):
+    """Verifica si los avatares llegaron a las casas y las atacan"""
+    avatares_a_remover = []
+    
+    for avatar in self.gestor_avatares.get_avatares_activos():
+        # Si el avatar llegó a la fila 0, ataca casas
+        if avatar.posicion[1] == 0:
+            col = avatar.posicion[0]
+            # Cada columna tiene una casa correspondiente
+            if 0 <= col < len(self.safe_houses):
+                house = self.safe_houses[col]
+                house.recibir_daño(avatar.ataque)
+                print(f"   🏠 {avatar.nombre} ataca casa en columna {col} (-{avatar.ataque} HP) | Vida restante: {house.vida_actual}/{house.vida_maxima}")
+                if house.esta_destruida():
+                    print(f"   💥 ¡Casa en columna {col} DESTRUIDA!")
+                # Marcar avatar para eliminar
+                avatares_a_remover.append(avatar)
+    
+    # Remover avatares que atacaron
+    for avatar in avatares_a_remover:
+        self.gestor_avatares.remover_avatar(avatar)
+    
+    def limpiar_torres_destruidas(self):
+        """Elimina torres destruidas del grid"""
+        torres_a_eliminar = []
+        for pos, torre in self.grid.torres_grid.items():
+            if not torre.activa:
+                torres_a_eliminar.append(pos)
+                print(f"   🏚️ Torre de {torre.tipo} destruida en {pos}")
+        
+        for pos in torres_a_eliminar:
+            del self.grid.torres_grid[pos]
+        
+        self.gestor_rooks.eliminar_torres_destruidas()
+    
+    def verificar_fin_juego(self):
+        """Verifica si el juego terminó (victoria o derrota)"""
+        # Derrota: todas las casas destruidas
+        casas_vivas = sum(1 for house in self.safe_houses if not house.esta_destruida())
+        if casas_vivas == 0:
+            self.terminar_juego(victoria=False)
+            return
+        
+        # Victoria: eliminar 50 enemigos
+        stats = self.gestor_avatares.get_estadisticas()
+        if stats['eliminados'] >= 50:
+            self.terminar_juego(victoria=True)
+    
+    def terminar_juego(self, victoria):
+        """Termina el juego y muestra resultado"""
+        if self.juego_terminado:
+            return
+        
+        self.juego_terminado = True
+        self.gestor_avatares.detener()
+        
+        stats = self.gestor_avatares.get_estadisticas()
+        stats_puntos = self.sistema_puntos.get_estadisticas()
+        
+        if victoria:
+            titulo = "🎉 ¡VICTORIA!"
+            mensaje = f"¡Has defendido exitosamente tu aldea!\n\n"
+            mensaje += f"Enemigos eliminados: {stats['eliminados']}\n"
+            mensaje += f"Puntos totales: {stats_puntos['puntos_totales']}\n"
+            mensaje += f"Dinero recolectado: ${stats_puntos['dinero_spawneado']}\n"
+            mensaje += f"Casas sobrevivientes: {sum(1 for h in self.safe_houses if not h.esta_destruida())}/5"
+        else:
+            titulo = "💀 DERROTA"
+            mensaje = f"Tu aldea ha sido destruida...\n\n"
+            mensaje += f"Enemigos eliminados: {stats['eliminados']}\n"
+            mensaje += f"Puntos totales: {stats_puntos['puntos_totales']}\n"
+            mensaje += f"Enemigos que llegaron: {stats['llegaron_meta']}"
+        
+        messagebox.showinfo(titulo, mensaje)
+    # ===================================
     
     def on_canvas_click(self, event):
         """Maneja los clics en el canvas"""
+        # ========== NUEVA LÍNEA ========== 
+        if self.juego_terminado:
+            return
+        # ===================================
+        
         # Si estamos esperando colocar una torre
         if self.esperando_colocacion:
             cell = self.grid.get_cell_from_coords(event.x, event.y)
@@ -668,6 +968,19 @@ class VillageGame(tk.Frame):
                 else:
                     messagebox.showinfo("Celda ocupada", "Ya hay una torre en esta posición")
             return
+        
+        # ========== NUEVAS LÍNEAS ========== 
+        # Intentar recolectar moneda
+        if self.juego_activo and not self.esperando_colocacion:
+            cell = self.grid.get_cell_from_coords(event.x, event.y)
+            if cell:
+                row, col = cell
+                dinero = self.sistema_monedas.intentar_recolectar(col, row)
+                if dinero > 0:
+                    self.presupuesto += dinero
+                    self.draw()
+                    return
+        # ===================================
         
         # Verificar clics en botones de elementos
         for btn in self.element_buttons:
@@ -699,8 +1012,11 @@ class VillageGame(tk.Frame):
             
             frecuencia = mapeo_frecuencias.get(self.esperando_colocacion, 5)
             
-            # Crear la torre
-            posicion = [col * self.cell_size, row * self.cell_size]
+            # Crear la torre (posición en píxeles del centro de la celda)
+            posicion = [
+                self.grid_x + col * self.cell_size + self.cell_size // 2,
+                100 + row * self.cell_size + self.cell_size // 2
+            ]
             torre = self.torre_a_colocar['class'](posicion, frecuencia)
             
             # Agregar al gestor y a la cuadrícula
@@ -710,10 +1026,7 @@ class VillageGame(tk.Frame):
             # Actualizar presupuesto
             self.presupuesto -= self.torre_a_colocar['price']
             
-            print(f"✅ Torre de {self.torre_a_colocar['name']} colocada | Presupuesto: ${self.presupuesto}")
-            
-            # Prueba automática desactivada - descomentar la siguiente línea para pruebas
-            # self.iniciar_prueba_torre(torre)
+            print(f"✅ Torre de {self.torre_a_colocar['name']} colocada en ({row},{col}) | Presupuesto: ${self.presupuesto}")
             
             # Limpiar estado
             self.esperando_colocacion = None
@@ -765,12 +1078,21 @@ class VillageGame(tk.Frame):
     
     def on_top_right_button_pressed(self):
         """Función llamada cuando se presiona el botón START"""
+        print("\n" + "="*60)
         print("🎮 ¡JUEGO INICIADO!")
-        print(f"Nivel: {self.nivel} | Presupuesto: ${self.presupuesto}")
+        print("="*60)
+        print(f"Nivel: {self.nivel}")
+        print(f"Presupuesto inicial: ${self.presupuesto}")
+        print(f"Torres colocadas: {len(self.grid.torres_grid)}")
+        print("="*60 + "\n")
         
         self.top_right_btn.hide()
-        self.prueba_activa = True
-        self.tiempo_inicio_prueba = time.time()
+        self.juego_activo = True
+        self.tiempo_inicio_juego = time.time()
+        
+        # Iniciar spawning de avatares
+        self.gestor_avatares.iniciar()
+        
         self.draw()
 
 
