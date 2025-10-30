@@ -50,7 +50,7 @@ class SplashScreen:
         self.canvas.create_text(
             splash_width // 2,
             100,
-            text="Avatars vs Rooks",
+            text="Avatar vs Rooks",
             font=("Arial", 42, "bold"),
             fill="white"
         )
