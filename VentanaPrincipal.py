@@ -461,7 +461,7 @@ class Grid:
             )
     
     def draw_avatares(self, canvas, avatares):
-        """MÉTODO CORREGIDO: Usa get_color() y get_icono()"""
+        """Dibuja los avatares en el grid"""
         for avatar in avatares:
             col, row = avatar.posicion
             x = self.x + col * self.cell_size + self.cell_size // 2
@@ -471,14 +471,14 @@ class Grid:
             canvas.create_oval(
                 x - radius, y - radius,
                 x + radius, y + radius,
-                fill=avatar.get_color(),  # ✅ CORREGIDO: usar método
+                fill=avatar.get_color(),
                 outline='#000000',
                 width=2
             )
             
             canvas.create_text(
                 x, y - 3,
-                text=avatar.get_icono(),  # ✅ CORREGIDO: usar método
+                text=avatar.get_icono(),
                 font=("Arial", 14)
             )
             
@@ -505,6 +505,7 @@ class Grid:
                 )
     
     def draw_proyectiles(self, canvas, proyectiles):
+        """Dibuja los proyectiles activos"""
         for proyectil in proyectiles:
             if proyectil.activo:
                 x, y = proyectil.posicion
@@ -587,6 +588,7 @@ class VillageGame(tk.Frame):
         self.juego_activo = False
         self.juego_terminado = False
         self.tiempo_inicio_juego = None
+        self.ultimo_tiempo = time.time()  # ✅ AGREGADO
         
         self.palette = ColorPalette(initial_palette)
         
@@ -604,6 +606,7 @@ class VillageGame(tk.Frame):
         self.cell_size = 60
         grid_width = self.grid_cols * self.cell_size
         self.grid_x = (self.width - grid_width) // 2
+        print(f"🔍 DEBUG: grid_x = {self.grid_x}")  # ✅ AGREGAR ESTO
         
         self.grid = Grid(self.grid_x, 100, self.grid_rows, self.grid_cols, 
                         self.cell_size, self.palette)
@@ -672,8 +675,9 @@ class VillageGame(tk.Frame):
         # Dibujar avatares
         self.grid.draw_avatares(self.canvas, self.gestor_avatares.get_avatares_activos())
         
-        # Dibujar proyectiles
-        self.grid.draw_proyectiles(self.canvas, self.gestor_rooks.proyectiles_activos)
+        # ✅ CORREGIDO: Obtener proyectiles correctamente
+        proyectiles_todos = self.gestor_rooks.get_todos_proyectiles()
+        self.grid.draw_proyectiles(self.canvas, proyectiles_todos)
         
         # Dibujar monedas
         tiempo_actual = time.time()
@@ -695,24 +699,40 @@ class VillageGame(tk.Frame):
             self.draw_stats()
     
     def animate(self):
+        """✅ MÉTODO CORREGIDO: Actualización completa del juego"""
         if self.juego_activo and not self.juego_terminado:
             tiempo_actual = time.time()
+            dt = tiempo_actual - self.ultimo_tiempo
+            self.ultimo_tiempo = tiempo_actual
             
-            self.gestor_rooks.update(tiempo_actual)
-            self.gestor_avatares.actualizar(tiempo_actual, self.grid.torres_grid)
+            # Configuración del grid para las torres
+            grid_config = {
+                'x': self.grid_x,
+                'y': 100,
+                'cell_size': self.cell_size
+            }
+            
+            # ✅ Actualizar torres (disparos automáticos)
+            self.gestor_rooks.actualizar(dt, tiempo_actual, grid_config)
+            
+            # ✅ Actualizar avatares (movimiento) - AHORA CON dt CORRECTO
+            self.gestor_avatares.actualizar(dt, self.grid.torres_grid)
+            
+            # ✅ Obtener proyectiles y verificar colisiones
+            proyectiles = self.gestor_rooks.get_todos_proyectiles()
+            self.gestor_avatares.verificar_colisiones_proyectiles(proyectiles)
+            
+            # Actualizar monedas
             self.sistema_monedas.update(tiempo_actual)
             
-            self.gestor_avatares.verificar_colisiones_proyectiles(
-                self.gestor_rooks.proyectiles_activos
-            )
-            
+            # Otras verificaciones
             self.verificar_avatares_en_casas()
             self.limpiar_torres_destruidas()
             self.verificar_fin_juego()
             
             self.draw()
         
-        self.after(100, self.animate)
+        self.after(16, self.animate)  # ✅ 60 FPS
     
     def draw_stats(self):
         stats_avatares = self.gestor_avatares.get_estadisticas()
@@ -847,9 +867,9 @@ class VillageGame(tk.Frame):
                 self.grid_x + col * self.cell_size + self.cell_size // 2,
                 100 + row * self.cell_size + self.cell_size // 2
             ]
-            torre = self.torre_a_colocar['class'](posicion, frecuencia)
+            torre = self.torre_a_colocar['class']()
             
-            self.gestor_rooks.torres.append(torre)
+            self.gestor_rooks.agregar_torre(torre.tipo, row, col)
             self.grid.add_torre(torre, row, col)
             
             self.presupuesto -= self.torre_a_colocar['price']
@@ -869,6 +889,7 @@ class VillageGame(tk.Frame):
         self.top_right_btn.hide()
         self.juego_activo = True
         self.tiempo_inicio_juego = time.time()
+        self.ultimo_tiempo = time.time()  # ✅ Reset del tiempo
         
         self.gestor_avatares.iniciar()
         
@@ -914,5 +935,5 @@ if __name__ == "__main__":
         "💧 TORRE DE AGUA": 2,
         "🔥 TORRE DE FUEGO": 5
     }
-    game_window = VillageGameWindow(nivel="FACIL", frecuencias=frecuencias_prueba)
+    game_window = VillageGameWindow(nivel="DIFICIL", frecuencias=frecuencias_prueba)
     game_window.run()

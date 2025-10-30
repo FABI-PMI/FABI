@@ -1,260 +1,229 @@
 import time
+import math
 
 class Proyectil:
-    """Clase base para los proyectiles que disparan las torres"""
-    
-    def __init__(self, tipo, damage, velocidad, posicion_inicial):
-        self.tipo = tipo
+    """Clase para los proyectiles disparados por las torres"""
+    def __init__(self, posicion, velocidad, damage, color, tipo):
+        self.posicion = list(posicion)  # [x, y] en píxeles
+        self.velocidad = velocidad
         self.damage = damage
-        self.velocidad = velocidad  # Pixels por frame
-        self.posicion = list(posicion_inicial)  # [x, y]
+        self.color = color
+        self.tipo = tipo
         self.activo = True
-        
-    def mover(self):
-        """Mueve el proyectil hacia ABAJO (donde están los avatares)"""
-        if self.activo:
-            # CAMBIO: Ahora se mueve en Y (hacia abajo)
-            self.posicion[1] += self.velocidad
+        self.direccion = [0, 1]  # DIRECCIÓN HACIA ABAJO (y positivo)
     
-    def colisiona_con(self, objetivo):
-        """Verifica colisión con un objetivo (avatar enemigo)"""
-        # Implementar lógica de colisión según tu sistema de coordenadas
-        pass
+    def actualizar(self, dt):
+        """Actualiza la posición del proyectil"""
+        if self.activo:
+            self.posicion[0] += self.direccion[0] * self.velocidad * dt
+            self.posicion[1] += self.direccion[1] * self.velocidad * dt
+    
+    def esta_fuera_pantalla(self, altura_pantalla=750):
+        """Verifica si el proyectil salió de la pantalla"""
+        return self.posicion[1] > altura_pantalla or self.posicion[1] < 0
     
     def desactivar(self):
-        """Desactiva el proyectil cuando impacta o sale de pantalla"""
+        """Desactiva el proyectil"""
         self.activo = False
-
-
-class ProyectilArena(Proyectil):
-    def __init__(self, posicion_inicial):
-        super().__init__(
-            tipo="Arena",
-            damage=4,
-            velocidad=8,
-            posicion_inicial=posicion_inicial
-        )
-        self.color = "#C4A35A"
-        self.efecto = "ralentizar"  # Efecto especial de arena
-
-
-class ProyectilRoca(Proyectil):
-    def __init__(self, posicion_inicial):
-        super().__init__(
-            tipo="Roca",
-            damage=6,
-            velocidad=6,
-            posicion_inicial=posicion_inicial
-        )
-        self.color = "#7A6F5D"
-        self.efecto = "aturdimiento"  # Efecto especial de roca
-
-
-class ProyectilAgua(Proyectil):
-    def __init__(self, posicion_inicial):
-        super().__init__(
-            tipo="Agua",
-            damage=10,
-            velocidad=10,
-            posicion_inicial=posicion_inicial
-        )
-        self.color = "#5B7C8D"
-        self.efecto = "penetracion"  # Atraviesa múltiples enemigos
-
-
-class ProyectilFuego(Proyectil):
-    def __init__(self, posicion_inicial):
-        super().__init__(
-            tipo="Fuego",
-            damage=8,
-            velocidad=12,
-            posicion_inicial=posicion_inicial
-        )
-        self.color = "#B85450"
-        self.efecto = "quemadura"  # Daño continuo
 
 
 class Rook:
     """Clase base para todas las torres"""
-    
-    def __init__(self, tipo, vida, precio, damage_proyectil, posicion, frecuencia_disparo=5):
+    def __init__(self, tipo, vida, frecuencia_disparo, damage_proyectil, color_proyectil):
         self.tipo = tipo
         self.vida_maxima = vida
         self.vida_actual = vida
-        self.precio = precio
+        self.frecuencia_disparo = frecuencia_disparo
         self.damage_proyectil = damage_proyectil
-        self.posicion = posicion  # [x, y] en el grid
-        self.frecuencia_disparo = frecuencia_disparo  # 0-10 del slider
+        self.color_proyectil = color_proyectil
+        self.activa = True
         self.ultimo_disparo = 0
         self.proyectiles = []
-        self.activa = True
-        self.nivel = 1
-        
-    def puede_disparar(self, tiempo_actual):
-        """Verifica si la torre puede disparar según su frecuencia"""
-        # La frecuencia indica cada cuántos segundos dispara
-        # Frecuencia 5 = dispara cada 5 segundos
-        # Frecuencia 10 = dispara cada 10 segundos
-        # Frecuencia 1 = dispara cada 1 segundo
-        cooldown = self.frecuencia_disparo
-        return (tiempo_actual - self.ultimo_disparo) >= cooldown
     
-    def disparar(self, tiempo_actual):
-        """Crea un nuevo proyectil si puede disparar"""
-        if self.puede_disparar(tiempo_actual) and self.activa:
-            proyectil = self.crear_proyectil()
-            self.proyectiles.append(proyectil)
+    def disparar(self, tiempo_actual, posicion_torre):
+        """
+        Dispara un proyectil hacia abajo si ha pasado suficiente tiempo
+        posicion_torre: [x, y] en píxeles de la posición de la torre
+        """
+        if not self.activa:
+            return None
+        
+        tiempo_desde_ultimo = tiempo_actual - self.ultimo_disparo
+        
+        if tiempo_desde_ultimo >= self.frecuencia_disparo:
             self.ultimo_disparo = tiempo_actual
+            
+            # Crear proyectil en la posición de la torre
+            proyectil = Proyectil(
+                posicion=posicion_torre.copy(),
+                velocidad=300,
+                damage=self.damage_proyectil,
+                color=self.color_proyectil,
+                tipo=self.tipo
+            )
+            
+            self.proyectiles.append(proyectil)
+            print(f"   🎯 Torre {self.tipo} disparó desde posición {posicion_torre}")
             return proyectil
+        
         return None
     
-    def crear_proyectil(self):
-        """Método a sobrescribir por cada subclase"""
-        raise NotImplementedError("Cada torre debe implementar crear_proyectil()")
+    def actualizar_proyectiles(self, dt):
+        """✅ CORREGIDO: Limpia proyectiles desactivados inmediatamente"""
+        for proyectil in self.proyectiles[:]:
+            if not proyectil.activo:
+                self.proyectiles.remove(proyectil)
+                continue
+            
+            proyectil.actualizar(dt)
+            
+            if proyectil.esta_fuera_pantalla():
+                proyectil.desactivar()
+                self.proyectiles.remove(proyectil)
     
     def recibir_damage(self, damage):
-        """Reduce la vida de la torre"""
-        self.vida_actual -= damage
+        """La torre recibe daño"""
+        self.vida_actual = max(0, self.vida_actual - damage)
         if self.vida_actual <= 0:
-            self.vida_actual = 0
-            self.destruir()
+            self.activa = False
+            print(f"   💥 Torre de {self.tipo} destruida!")
     
-    def reparar(self, cantidad):
-        """Repara la torre (no puede exceder vida máxima)"""
-        self.vida_actual = min(self.vida_actual + cantidad, self.vida_maxima)
-    
-    def destruir(self):
-        """Destruye la torre"""
-        self.activa = False
-    
-    def mejorar(self):
-        """Mejora la torre (aumenta stats)"""
-        self.nivel += 1
-        self.vida_maxima = int(self.vida_maxima * 1.2)
-        self.vida_actual = self.vida_maxima
-        self.damage_proyectil = int(self.damage_proyectil * 1.15)
-    
-    def actualizar_frecuencia(self, nueva_frecuencia):
-        """Actualiza la frecuencia de disparo desde el menú"""
-        self.frecuencia_disparo = nueva_frecuencia
-    
-    def get_info(self):
-        """Retorna información de la torre"""
-        return {
-            'tipo': self.tipo,
-            'vida': f"{self.vida_actual}/{self.vida_maxima}",
-            'nivel': self.nivel,
-            'frecuencia': self.frecuencia_disparo,
-            'precio': self.precio,
-            'damage': self.damage_proyectil
-        }
+    def esta_viva(self):
+        """Verifica si la torre sigue activa"""
+        return self.activa and self.vida_actual > 0
 
 
 class RookArena(Rook):
-    """🏜️ Torre de Arena - Barata y rápida pero débil"""
-    
-    def __init__(self, posicion, frecuencia_disparo=5):
+    """Torre de Arena - Disparo rápido, poco daño"""
+    def __init__(self):
         super().__init__(
             tipo="Arena",
-            vida=10,
-            precio=50,
-            damage_proyectil=4,
-            posicion=posicion,
-            frecuencia_disparo=frecuencia_disparo
+            vida=15,
+            frecuencia_disparo=1.0,
+            damage_proyectil=2,
+            color_proyectil="#D2B48C"
         )
-        self.color = "#C4A35A"
+        self.color = "#DEB887"
         self.icono = "⛰️"
-        
-    def crear_proyectil(self):
-        return ProyectilArena(self.posicion.copy())
 
 
 class RookRoca(Rook):
-    """🪨 Torre de Roca - Resistente y equilibrada"""
-    
-    def __init__(self, posicion, frecuencia_disparo=5):
+    """Torre de Roca - Resistente, disparo medio"""
+    def __init__(self):
         super().__init__(
             tipo="Roca",
-            vida=14,
-            precio=100,
-            damage_proyectil=6,
-            posicion=posicion,
-            frecuencia_disparo=frecuencia_disparo
+            vida=30,
+            frecuencia_disparo=2.0,
+            damage_proyectil=4,
+            color_proyectil="#808080"
         )
-        self.color = "#7A6F5D"
+        self.color = "#696969"
         self.icono = "🪨"
-        
-    def crear_proyectil(self):
-        return ProyectilRoca(self.posicion.copy())
 
 
 class RookAgua(Rook):
-    """💧 Torre de Agua - Potente y veloz pero cara"""
-    
-    def __init__(self, posicion, frecuencia_disparo=5):
+    """Torre de Agua - Daño medio, velocidad media"""
+    def __init__(self):
         super().__init__(
             tipo="Agua",
-            vida=16,
-            precio=150,
-            damage_proyectil=10,
-            posicion=posicion,
-            frecuencia_disparo=frecuencia_disparo
+            vida=20,
+            frecuencia_disparo=1.5,
+            damage_proyectil=3,
+            color_proyectil="#4169E1"
         )
-        self.color = "#5B7C8D"
+        self.color = "#4682B4"
         self.icono = "💧"
-        
-    def crear_proyectil(self):
-        return ProyectilAgua(self.posicion.copy())
 
 
 class RookFuego(Rook):
-    """🔥 Torre de Fuego - Alto daño con efecto continuo"""
-    
-    def __init__(self, posicion, frecuencia_disparo=5):
+    """Torre de Fuego - Mucho daño, lenta"""
+    def __init__(self):
         super().__init__(
             tipo="Fuego",
-            vida=16,
-            precio=150,
-            damage_proyectil=8,
-            posicion=posicion,
-            frecuencia_disparo=frecuencia_disparo
+            vida=20,
+            frecuencia_disparo=3.0,
+            damage_proyectil=6,
+            color_proyectil="#FF4500"
         )
-        self.color = "#B85450"
+        self.color = "#FF4500"
         self.icono = "🔥"
-        
-    def crear_proyectil(self):
-        return ProyectilFuego(self.posicion.copy())
 
-
-# ===== SISTEMA DE GESTIÓN DE TORRES =====
 
 class GestorRooks:
-    """Gestiona todas las torres en el juego"""
-    
+    """Gestiona todas las torres del juego"""
     def __init__(self):
-        self.torres = []
-        self.proyectiles_activos = []
-        
-    def agregar_torre(self, tipo_torre, posicion, frecuencia=5):
-        """Crea y agrega una nueva torre"""
-        tipos = {
+        self.torres = {}  # Diccionario {(row, col): Rook}
+        self.tipos_disponibles = {
             "Arena": RookArena,
             "Roca": RookRoca,
             "Agua": RookAgua,
             "Fuego": RookFuego
         }
+    
+    def agregar_torre(self, tipo, row, col):
+        """Agrega una torre en la posición especificada"""
+        if (row, col) in self.torres:
+            print(f"   ⚠️ Ya existe una torre en ({row}, {col})")
+            return False
         
-        if tipo_torre in tipos:
-            torre = tipos[tipo_torre](posicion, frecuencia)
-            self.torres.append(torre)
-            return torre
-        return None
+        if tipo not in self.tipos_disponibles:
+            print(f"   ⚠️ Tipo de torre desconocido: {tipo}")
+            return False
+        
+        torre = self.tipos_disponibles[tipo]()
+        self.torres[(row, col)] = torre
+        print(f"   ✅ Torre de {tipo} colocada en ({row}, {col})")
+        return True
+    
+    def actualizar(self, dt, tiempo_actual, grid_config):
+        """
+        ✅ CORREGIDO: Limpia torres destruidas ANTES de disparar
+        """
+        # ✅ CAMBIO 2: Primero limpiar torres destruidas
+        torres_a_eliminar = []
+        for pos, torre in list(self.torres.items()):
+            if not torre.esta_viva() or not torre.activa:
+                torres_a_eliminar.append(pos)
+        
+        for pos in torres_a_eliminar:
+            del self.torres[pos]
+            print(f"   🗑️ Torre eliminada de posición {pos}")
+        
+        # Ahora actualizar torres vivas
+        for (row, col), torre in list(self.torres.items()):
+            if not torre.esta_viva():
+                continue
+            
+            # Calcular posición en píxeles de la torre
+            x = grid_config['x'] + col * grid_config['cell_size'] + grid_config['cell_size'] // 2
+            y = grid_config['y'] + row * grid_config['cell_size'] + grid_config['cell_size'] // 2
+            posicion_torre = [x, y]
+            
+            # Disparar hacia abajo automáticamente según frecuencia
+            torre.disparar(tiempo_actual, posicion_torre)
+            
+            # Actualizar proyectiles
+            torre.actualizar_proyectiles(dt)
+    
+    def get_todos_proyectiles(self):
+        """Retorna todos los proyectiles activos de todas las torres"""
+        proyectiles = []
+        for torre in self.torres.values():
+            proyectiles.extend([p for p in torre.proyectiles if p.activo])
+        return proyectiles
+    
+    def eliminar_torres_destruidas(self):
+        """Elimina torres que ya no están activas"""
+        torres_a_eliminar = []
+        for pos, torre in self.torres.items():
+            if not torre.activa:
+                torres_a_eliminar.append(pos)
+        
+        for pos in torres_a_eliminar:
+            del self.torres[pos]
     
     def actualizar_frecuencias(self, frecuencias_dict):
-        """
-        Actualiza las frecuencias de todas las torres desde el menú
-        frecuencias_dict: diccionario del método get_all_frequencies() del menú
-        """
+        """Actualiza las frecuencias de disparo desde el menú"""
         mapeo = {
             "⛰️  TORRE DE ARENA": "Arena",
             "🪨  TORRE DE ROCA": "Roca",
@@ -265,31 +234,6 @@ class GestorRooks:
         for nombre_menu, frecuencia in frecuencias_dict.items():
             tipo = mapeo.get(nombre_menu)
             if tipo:
-                for torre in self.torres:
+                for torre in self.torres.values():
                     if torre.tipo == tipo:
-                        torre.actualizar_frecuencia(frecuencia)
-    
-    def update(self, tiempo_actual):
-        """Actualiza todas las torres y proyectiles"""
-        # Disparar desde todas las torres activas
-        for torre in self.torres:
-            if torre.activa:
-                proyectil = torre.disparar(tiempo_actual)
-                if proyectil:
-                    self.proyectiles_activos.append(proyectil)
-        
-        # Actualizar proyectiles
-        for proyectil in self.proyectiles_activos[:]:
-            proyectil.mover()
-            
-            # CAMBIO: Remover proyectiles que salen por abajo (Y > 750)
-            if not proyectil.activo or proyectil.posicion[1] > 750:
-                self.proyectiles_activos.remove(proyectil)
-    
-    def eliminar_torres_destruidas(self):
-        """Limpia torres destruidas de la lista"""
-        self.torres = [t for t in self.torres if t.activa]
-    
-    def get_torres_activas(self):
-        """Retorna lista de torres activas"""
-        return [t for t in self.torres if t.activa]
+                        torre.frecuencia_disparo = frecuencia

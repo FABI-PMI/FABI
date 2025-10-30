@@ -200,6 +200,9 @@ class ColorSelectorApp:
         self.tema_var = tk.StringVar(value="claro")
         self.cancion_var = tk.StringVar()
         
+        # Inicializar el color de fondo con el color inicial
+        self.root.after(100, lambda: self.actualizar_color_fondo(self.color_favorito.get()))
+        
         self.tema_var.trace('w', self.cambiar_tema)
         
         self._crear_titulo()
@@ -499,6 +502,9 @@ class ColorSelectorApp:
             self.color_display.configure(bg=color_hex)
             self.color_label.configure(text=color_hex)
             
+            # Actualizar el color de fondo de la ventana principal
+            self.actualizar_color_fondo(color_hex)
+            
             if GAME_AVAILABLE and self.game_preview:
                 self.update_game_palette()
     
@@ -532,6 +538,28 @@ class ColorSelectorApp:
         
         if GAME_AVAILABLE and self.game_preview:
             self.update_game_palette()
+    
+    def actualizar_color_fondo(self, color_hex):
+        """Actualiza el color de fondo de la ventana principal según el color seleccionado"""
+        # Convertir hex a RGB
+        r = int(color_hex[1:3], 16)
+        g = int(color_hex[3:5], 16)
+        b = int(color_hex[5:7], 16)
+        
+        # Oscurecer el color para el fondo (multiplicar por 0.6)
+        r_dark = int(r * 0.6)
+        g_dark = int(g * 0.6)
+        b_dark = int(b * 0.6)
+        
+        color_fondo = '#%02x%02x%02x' % (r_dark, g_dark, b_dark)
+        
+        # Actualizar todos los elementos con el nuevo color de fondo
+        self.color_fondo_fijo = color_fondo
+        self.root.configure(bg=color_fondo)
+        self.scrollable_frame.configure(bg=color_fondo)
+        self.main_canvas.configure(bg=color_fondo)
+        self.title_label.configure(bg=color_fondo)
+        self.espacio_label.configure(bg=color_fondo)
     
     def pausar_reanudar_musica(self):
         """Pausa o reanuda la música según el estado actual"""
@@ -765,6 +793,57 @@ class ColorSelectorApp:
         secs = int(seconds % 60)
         return f"{minutes}:{secs:02d}"
     
+    def _verificar_usuario_existe(self, username):
+        """Verifica si el usuario existe en el archivo encriptado"""
+        import json
+        from cryptography.fernet import Fernet
+        
+        archivo_encriptado = 'usuarios.json.enc'
+        archivo_clave = 'clave.key'
+        
+        try:
+            # Verificar que existen los archivos
+            if not os_module.path.exists(archivo_clave):
+                print("❌ No se encontró el archivo clave.key")
+                return False
+            
+            if not os_module.path.exists(archivo_encriptado):
+                print("❌ No se encontró el archivo usuarios.json.enc")
+                return False
+            
+            # Cargar clave
+            with open(archivo_clave, 'rb') as f:
+                clave = f.read()
+            
+            fernet = Fernet(clave)
+            
+            # Desencriptar archivo de usuarios
+            with open(archivo_encriptado, 'rb') as f:
+                datos_encriptados = f.read()
+            
+            datos_desencriptados = fernet.decrypt(datos_encriptados)
+            usuarios = json.loads(datos_desencriptados.decode('utf-8'))
+            
+            # Verificar si el usuario existe
+            existe = username in usuarios
+            
+            if existe:
+                print(f"✅ Usuario '{username}' encontrado en el sistema")
+            else:
+                print(f"❌ Usuario '{username}' NO encontrado en el sistema")
+                print(f"📋 Usuarios disponibles: {list(usuarios.keys())}")
+            
+            return existe
+            
+        except FileNotFoundError as e:
+            print(f"❌ Archivo no encontrado: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ Error al verificar usuario: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
     def iniciar_juego(self):
         """Guarda la personalización y inicia el juego."""
         if not GAME_AVAILABLE:
@@ -780,6 +859,15 @@ class ColorSelectorApp:
         if not username:
             return  # Usuario canceló
         
+        # ✅ VERIFICAR que el usuario existe ANTES de continuar
+        if not self._verificar_usuario_existe(username):
+            messagebox.showerror(
+                "Error", 
+                f"El usuario '{username}' no existe en el sistema.\n\n"
+                "Por favor verifica el nombre e intenta de nuevo."
+            )
+            return
+        
         try:
             # Obtener configuración actual
             color = self.color_favorito.get()
@@ -787,7 +875,8 @@ class ColorSelectorApp:
             cancion = self.cancion_var.get().strip()
             
             # Guardar personalización en el perfil del usuario
-            self._guardar_personalizacion(username, color, tema, cancion)
+            if not self._guardar_personalizacion(username, color, tema, cancion):
+                return  # Error al guardar
             
             # Generar paleta
             palette = generate_palette(color, tema)
@@ -799,8 +888,11 @@ class ColorSelectorApp:
             
             screen_width = game_window.winfo_screenwidth()
             screen_height = game_window.winfo_screenheight()
-            window_width = 500
-            window_height = 700
+            
+            # ✅ CORREGIDO: Usar las mismas dimensiones que VentanaPrincipal
+            window_width = 600  # Era 500
+            window_height = 750  # Era 700
+            
             position_x = int((screen_width - window_width) / 2)
             position_y = int((screen_height - window_height) / 2)
             
@@ -809,13 +901,28 @@ class ColorSelectorApp:
             
             game_window.protocol("WM_DELETE_WINDOW", lambda: self._cerrar_aplicacion(game_window))
             
-            game_frame = VillageGame(game_window, width=500, height=700, initial_palette=palette)
+            # ✅ CORREGIDO: Pasar todos los parámetros correctamente
+            game_frame = VillageGame(
+                game_window, 
+                width=600,  # Era 500
+                height=750,  # Era 700
+                nivel="FACIL",  # ✅ Agregar nivel
+                frecuencias={  # ✅ Agregar frecuencias por defecto
+                    "⛰️  TORRE DE ARENA": 1.0,
+                    "🪨  TORRE DE ROCA": 2.0,
+                    "💧 TORRE DE AGUA": 1.5,
+                    "🔥 TORRE DE FUEGO": 3.0
+                },
+                initial_palette=palette
+            )
             game_frame.pack()
             
             if self.is_playing and cancion:
                 print(f"🎵 Música activa: {cancion}")
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self.root.deiconify()
             messagebox.showerror("Error", f"No se pudo iniciar el juego:\n{e}")
     
@@ -923,15 +1030,15 @@ class ColorSelectorApp:
             
         except FileNotFoundError:
             messagebox.showerror("Error", "No se encontró el archivo de usuarios o la clave")
-            return
+            return False
         except Exception as e:
             messagebox.showerror("Error", f"Error al leer usuarios: {e}")
-            return
+            return False
         
-        # Verificar que el usuario existe
+        # El usuario ya fue verificado antes, pero por seguridad revisamos de nuevo
         if username not in usuarios:
             messagebox.showerror("Error", f"El usuario '{username}' no existe")
-            return
+            return False
         
         # Agregar personalización al usuario
         usuarios[username]['personalizacion'] = {
@@ -948,13 +1055,26 @@ class ColorSelectorApp:
             with open(archivo_encriptado, 'wb') as f:
                 f.write(datos_encriptados)
             
-            print(f"✓ Personalización guardada para {username}")
+            print(f"✅ Personalización guardada para {username}")
+            print(f"   Color: {color}")
+            print(f"   Tema: {tema}")
+            print(f"   Canción: {cancion or 'Ninguna'}")
+            
             messagebox.showinfo(
                 "Guardado Exitoso",
-                f"Tu personalización se guardó correctamente.\n\nUsuario: {username}\nColor: {color}\nTema: {tema}"
+                f"Tu personalización se guardó correctamente.\n\n"
+                f"Usuario: {username}\n"
+                f"Color: {color}\n"
+                f"Tema: {tema}\n"
+                f"Canción: {cancion or 'Ninguna'}"
             )
+            return True
+            
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("Error", f"No se pudo guardar la personalización:\n{e}")
+            return False
     
     def _cerrar_aplicacion(self, game_window):
         """Cierra la ventana del juego y toda la aplicación"""
