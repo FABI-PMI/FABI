@@ -45,7 +45,8 @@ class Rook:
         Dispara un proyectil hacia abajo si ha pasado suficiente tiempo
         posicion_torre: [x, y] en píxeles de la posición de la torre
         """
-        if not self.activa:
+        # Verificar que la torre está viva antes de disparar
+        if not self.activa or self.vida_actual <= 0:
             return None
         
         tiempo_desde_ultimo = tiempo_actual - self.ultimo_disparo
@@ -86,6 +87,10 @@ class Rook:
         self.vida_actual = max(0, self.vida_actual - damage)
         if self.vida_actual <= 0:
             self.activa = False
+            # DESACTIVAR TODOS LOS PROYECTILES INMEDIATAMENTE
+            for proyectil in self.proyectiles:
+                proyectil.desactivar()
+            self.proyectiles.clear()  # Limpiar la lista
             print(f"   💥 Torre de {self.tipo} destruida!")
     
     def esta_viva(self):
@@ -161,19 +166,19 @@ class GestorRooks:
         }
     
     def agregar_torre(self, tipo, row, col):
-        """Agrega una torre en la posición especificada"""
+        """Agrega una torre en la posición especificada y devuelve la instancia"""
         if (row, col) in self.torres:
             print(f"   ⚠️ Ya existe una torre en ({row}, {col})")
-            return False
+            return None
         
         if tipo not in self.tipos_disponibles:
             print(f"   ⚠️ Tipo de torre desconocido: {tipo}")
-            return False
+            return None
         
         torre = self.tipos_disponibles[tipo]()
         self.torres[(row, col)] = torre
         print(f"   ✅ Torre de {tipo} colocada en ({row}, {col})")
-        return True
+        return torre  # Devolver la instancia creada
     
     def actualizar(self, dt, tiempo_actual, grid_config):
         """
@@ -183,6 +188,10 @@ class GestorRooks:
         torres_a_eliminar = []
         for pos, torre in list(self.torres.items()):
             if not torre.esta_viva() or not torre.activa:
+                # Desactivar todos los proyectiles de esta torre
+                for proyectil in torre.proyectiles:
+                    proyectil.desactivar()
+                torre.proyectiles.clear()
                 torres_a_eliminar.append(pos)
         
         for pos in torres_a_eliminar:
@@ -217,6 +226,10 @@ class GestorRooks:
         torres_a_eliminar = []
         for pos, torre in self.torres.items():
             if not torre.activa:
+                # Desactivar todos los proyectiles de esta torre
+                for proyectil in torre.proyectiles:
+                    proyectil.desactivar()
+                torre.proyectiles.clear()
                 torres_a_eliminar.append(pos)
         
         for pos in torres_a_eliminar:

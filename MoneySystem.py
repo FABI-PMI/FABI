@@ -281,7 +281,7 @@ class SistemaPuntos:
                 self.puntos_por_escudero += puntos
             elif tipo_avatar == "Leñador":
                 self.puntos_por_leñador += puntos
-            elif tipo_avatar == "Caníbal":
+            elif tipo_avatar == "Canibal":
                 self.puntos_por_canibal += puntos
         
         # Verificar si es momento de spawnear monedas
@@ -417,7 +417,7 @@ if __name__ == "__main__":
     print(f"   🏹 Flechador: {stats['por_flechador']}")
     print(f"   🛡️ Escudero: {stats['por_escudero']}")
     print(f"   🪓 Leñador: {stats['por_leñador']}")
-    print(f"   👹 Caníbal: {stats['por_canibal']}")
+    print(f"   👹 Canibal: {stats['por_canibal']}")
     
     print(f"\n🔄 Progreso hacia siguiente spawn: {stats['puntos_para_spawn']}/30 " +
           f"({stats['progreso_spawn']*100:.1f}%)")

@@ -1,15 +1,16 @@
 """
-Sistema de juego de aldeas con cuadrícula.
-Versión completamente en Tkinter (sin Pygame).
+Sistema de juego de aldeas con cuadricula.
+Version completamente en Tkinter (sin Pygame).
 Con sistema de puntos y monedas integrado.
-VERSIÓN CORREGIDA: Avatares disparan proyectiles correctamente
+VERSION CON SPRITES ANIMADOS: Los avatares alternan entre imagenes de paso
 """
-import io, base64  # <— para decodificar la foto de perfil
+import io, base64
 from ptsSalon import pts as pts_salon
 from ventana_personalizacion import get_popularidad
 from bpm_live import get_bpm_snapshot
 from Login import cargar_usuarios, guardar_usuarios
 from PIL import Image, ImageTk
+import os
 
 import tkinter as tk
 from tkinter import Canvas, messagebox
@@ -24,7 +25,7 @@ from MoneySystem import SistemaPuntos, SistemaMonedas
 class ColorPalette:
     """
     Recibe una paleta de colores completa generada externamente.
-    Este módulo NO genera colores, solo los organiza y distribuye.
+    Este modulo NO genera colores, solo los organiza y distribuye.
     """
     def __init__(self, palette_dict=None):
         if palette_dict is None:
@@ -48,7 +49,7 @@ class ColorPalette:
         self.invader_houses_door = self.rgb_to_hex(palette_dict.get('invader_houses_door', (40, 40, 40)))
         self.invader_houses_window = self.rgb_to_hex(palette_dict.get('invader_houses_window', (150, 100, 100)))
         
-        # Cuadrícula
+        # Cuadricula
         self.grid_bg = self.rgb_to_hex(palette_dict.get('grid_bg', (255, 255, 255)))
         self.grid_bg_light = self.rgb_to_hex(palette_dict.get('grid_bg_light', (144, 238, 144)))
         self.grid_bg_dark = self.rgb_to_hex(palette_dict.get('grid_bg_dark', (34, 139, 34)))
@@ -101,6 +102,235 @@ class ColorPalette:
         self.load_palette(new_palette_dict)
 
 
+class SpriteManager:
+    """Gestor de sprites para los avatares"""
+    def __init__(self):
+        self.sprites = {}
+        self.photo_images = {}
+        self.sprite_size = 55
+        self.projectile_size = 40  # Más grande para mejor visibilidad
+        self.weapon_size = 60  # Tamaño de una casilla completa
+        self.collision_size = 40
+        self.cargar_sprites()
+        self.cargar_proyectiles()
+        self.cargar_armas()
+        self.cargar_colisiones()
+    
+    def cargar_sprites(self):
+        """Carga todas las imagenes de sprites disponibles"""
+        tipos = ['leñador', 'flechador', 'escudero', 'canibal']
+        extensiones = ['.png', '.jpg', '.jpeg', '.gif']
+        
+        for tipo in tipos:
+            self.sprites[tipo] = []
+            for frame in [0, 1]:
+                imagen_cargada = False
+                for ext in extensiones:
+                    path = f"{tipo}{frame}{ext}"
+                    if os.path.exists(path):
+                        try:
+                            img = Image.open(path).convert("RGBA")
+                            img = img.resize((self.sprite_size, self.sprite_size), Image.LANCZOS)
+                            self.sprites[tipo].append(img)
+                            imagen_cargada = True
+                            print(f"✅ Sprite cargado: {path}")
+                            break
+                        except Exception as e:
+                            print(f"⚠️ Error cargando {path}: {e}")
+                
+                if not imagen_cargada:
+                    print(f"⚠️ No se encontro sprite: {tipo}{frame}")
+                    self.sprites[tipo].append(None)
+    
+    def cargar_proyectiles(self):
+        """Carga imagenes de proyectiles"""
+        self.proyectiles = {}
+        extensiones = ['.png', '.jpg', '.jpeg', '.gif']
+        
+        for ext in extensiones:
+            path = f"flecha{ext}"
+            if os.path.exists(path):
+                try:
+                    img = Image.open(path).convert("RGBA")
+                    img = img.resize((self.projectile_size, self.projectile_size), Image.LANCZOS)
+                    self.proyectiles['flecha'] = img
+                    print(f"✅ Proyectil cargado: {path}")
+                    break
+                except Exception as e:
+                    print(f"⚠️ Error cargando {path}: {e}")
+        
+        for ext in extensiones:
+            path = f"escudo{ext}"
+            if os.path.exists(path):
+                try:
+                    img = Image.open(path).convert("RGBA")
+                    img = img.resize((self.projectile_size, self.projectile_size), Image.LANCZOS)
+                    self.proyectiles['escudo'] = img
+                    print(f"✅ Proyectil cargado: {path}")
+                    break
+                except Exception as e:
+                    print(f"⚠️ Error cargando {path}: {e}")
+    
+    def cargar_armas(self):
+        """Carga imagenes de armas para ataques melee"""
+        self.armas = {}
+        extensiones = ['.png', '.jpg', '.jpeg', '.gif']
+        
+        self.armas['hacha'] = []
+        for frame in [0, 1]:
+            imagen_cargada = False
+            for ext in extensiones:
+                path = f"hacha{frame}{ext}"
+                if os.path.exists(path):
+                    try:
+                        img = Image.open(path).convert("RGBA")
+                        img = img.resize((self.weapon_size, self.weapon_size), Image.LANCZOS)
+                        self.armas['hacha'].append(img)
+                        imagen_cargada = True
+                        print(f"✅ Arma cargada: {path}")
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Error cargando {path}: {e}")
+            if not imagen_cargada:
+                self.armas['hacha'].append(None)
+        
+        self.armas['palo'] = []
+        for frame in [0, 1]:
+            imagen_cargada = False
+            for ext in extensiones:
+                path = f"palo{frame}{ext}"
+                if os.path.exists(path):
+                    try:
+                        img = Image.open(path).convert("RGBA")
+                        img = img.resize((self.weapon_size, self.weapon_size), Image.LANCZOS)
+                        self.armas['palo'].append(img)
+                        imagen_cargada = True
+                        print(f"✅ Arma cargada: {path}")
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Error cargando {path}: {e}")
+            if not imagen_cargada:
+                self.armas['palo'].append(None)
+    
+    def cargar_colisiones(self):
+        """Carga imagenes de animacion de colision"""
+        self.colisiones = []
+        extensiones = ['.png', '.jpg', '.jpeg', '.gif']
+        
+        for frame in [0, 1]:
+            imagen_cargada = False
+            for ext in extensiones:
+                path = f"colision{frame}{ext}"
+                if os.path.exists(path):
+                    try:
+                        img = Image.open(path).convert("RGBA")
+                        img = img.resize((self.collision_size, self.collision_size), Image.LANCZOS)
+                        self.colisiones.append(img)
+                        imagen_cargada = True
+                        print(f"✅ Colision cargada: {path}")
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Error cargando {path}: {e}")
+            if not imagen_cargada:
+                self.colisiones.append(None)
+    
+    def get_proyectil_sprite(self, tipo_avatar, canvas):
+        """Obtiene el sprite del proyectil segun el tipo de avatar"""
+        tipo_normalizado = tipo_avatar.lower().strip()
+        
+        if 'flechador' in tipo_normalizado:
+            sprite_key = 'flecha'
+        elif 'escudero' in tipo_normalizado:
+            sprite_key = 'escudo'
+        else:
+            return None
+        
+        if sprite_key not in self.proyectiles:
+            return None
+        
+        pil_img = self.proyectiles[sprite_key]
+        cache_key = (sprite_key, 'proyectil', id(canvas))
+        if cache_key not in self.photo_images:
+            self.photo_images[cache_key] = ImageTk.PhotoImage(pil_img, master=canvas)
+        
+        return self.photo_images[cache_key]
+    
+    def get_arma_sprite(self, tipo_avatar, frame_index, canvas):
+        """Obtiene el sprite del arma para ataques melee"""
+        tipo_normalizado = tipo_avatar.lower().strip()
+        
+        if 'leñador' in tipo_normalizado:
+            arma_key = 'hacha'
+        elif 'canibal' in tipo_normalizado:
+            arma_key = 'palo'
+        else:
+            return None
+        
+        if arma_key not in self.armas or not self.armas[arma_key]:
+            return None
+        
+        if frame_index >= len(self.armas[arma_key]):
+            return None
+        
+        pil_img = self.armas[arma_key][frame_index]
+        if pil_img is None:
+            return None
+        
+        cache_key = (arma_key, frame_index, id(canvas))
+        if cache_key not in self.photo_images:
+            self.photo_images[cache_key] = ImageTk.PhotoImage(pil_img, master=canvas)
+        
+        return self.photo_images[cache_key]
+    
+    def get_colision_sprite(self, frame_index, canvas):
+        """Obtiene el sprite de la animacion de colision"""
+        if not self.colisiones or frame_index >= len(self.colisiones):
+            return None
+        
+        pil_img = self.colisiones[frame_index]
+        if pil_img is None:
+            return None
+        
+        cache_key = ('colision', frame_index, id(canvas))
+        if cache_key not in self.photo_images:
+            self.photo_images[cache_key] = ImageTk.PhotoImage(pil_img, master=canvas)
+        
+        return self.photo_images[cache_key]
+    
+    def get_sprite(self, tipo, frame_index, canvas):
+        """Obtiene el PhotoImage del sprite para un canvas especifico"""
+        tipo_normalizado = tipo.lower().strip()
+        
+        if 'leñador' in tipo_normalizado or '🪓' in tipo:
+            tipo_key = 'leñador'
+        elif 'flechador' in tipo_normalizado or '🏹' in tipo:
+            tipo_key = 'flechador'
+        elif 'escudero' in tipo_normalizado or '🛡' in tipo:
+            tipo_key = 'escudero'
+        elif 'canibal' in tipo_normalizado or '🗡' in tipo or '💹' in tipo:
+            tipo_key = 'canibal'
+        else:
+            print(f"⚠️ Tipo de avatar no reconocido: '{tipo}'")
+            return None
+        
+        if tipo_key not in self.sprites:
+            return None
+        
+        frames = self.sprites[tipo_key]
+        if not frames or frame_index >= len(frames):
+            return None
+        
+        pil_img = frames[frame_index]
+        if pil_img is None:
+            return None
+        
+        cache_key = (tipo_key, frame_index, id(canvas))
+        if cache_key not in self.photo_images:
+            self.photo_images[cache_key] = ImageTk.PhotoImage(pil_img, master=canvas)
+        
+        return self.photo_images[cache_key]
+
+
 class House:
     def __init__(self, x, y, palette, is_invader=False):
         self.x = x
@@ -109,20 +339,19 @@ class House:
         self.is_invader = is_invader
         self.size = 35
         
-        # Sistema de vida
         self.vida_maxima = 100
         self.vida_actual = 100
     
-    def recibir_daño(self, daño):
+    def recibir_dano(self, dano):
         """Reduce la vida de la casa"""
-        self.vida_actual = max(0, self.vida_actual - daño)
+        self.vida_actual = max(0, self.vida_actual - dano)
     
     def esta_destruida(self):
-        """Verifica si la casa está destruida"""
+        """Verifica si la casa esta destruida"""
         return self.vida_actual <= 0
     
     def get_colors(self):
-        """Obtiene los colores según el tipo de casa"""
+        """Obtiene los colores segun el tipo de casa"""
         if self.is_invader:
             return {
                 'body': self.palette.invader_houses,
@@ -141,14 +370,12 @@ class House:
     def draw(self, canvas):
         colors = self.get_colors()
         
-        # Cuerpo de la casa
         canvas.create_rectangle(
             self.x, self.y + 12,
             self.x + self.size, self.y + self.size,
             fill=colors['body'], outline=colors['body']
         )
         
-        # Techo triangular
         roof_points = [
             self.x, self.y + 12,
             self.x + self.size // 2, self.y,
@@ -156,21 +383,18 @@ class House:
         ]
         canvas.create_polygon(roof_points, fill=colors['roof'], outline=colors['roof'])
         
-        # Puerta
         canvas.create_rectangle(
             self.x + 12, self.y + 22,
             self.x + 23, self.y + 40,
             fill=colors['door'], outline=colors['door']
         )
         
-        # Ventana
         canvas.create_rectangle(
             self.x + 5, self.y + 16,
             self.x + 14, self.y + 25,
             fill=colors['window'], outline=colors['window']
         )
         
-        # Barra de vida
         if not self.is_invader:
             vida_percent = self.vida_actual / self.vida_maxima
             bar_width = self.size
@@ -178,7 +402,6 @@ class House:
             bar_x = self.x
             bar_y = self.y + self.size + 3
             
-            # Fondo rojo
             canvas.create_rectangle(
                 bar_x, bar_y,
                 bar_x + bar_width, bar_y + bar_height,
@@ -186,7 +409,6 @@ class House:
                 outline='#333333'
             )
             
-            # Vida actual verde
             if vida_percent > 0:
                 canvas.create_rectangle(
                     bar_x, bar_y,
@@ -202,8 +424,8 @@ class UserIcon:
         self.y = y
         self.palette = palette
         self.size = size
-        self._pil_circular = None  # <- guardamos aquí la imagen PIL circular
-        self._photo_tk = None      # <- cache del PhotoImage para este canvas
+        self._pil_circular = None
+        self._photo_tk = None
 
     def _circularize(self, pil_img, size):
         pil_img = pil_img.convert("RGBA").resize((size, size), Image.LANCZOS)
@@ -234,7 +456,6 @@ class UserIcon:
 
     def draw(self, canvas):
         radius = self.size // 2
-        # borde del círculo
         canvas.create_oval(
             self.x - radius, self.y - radius,
             self.x + radius, self.y + radius,
@@ -243,13 +464,10 @@ class UserIcon:
             width=3
         )
 
-        # si hay foto, creamos el PhotoImage con master=canvas y lo dibujamos
         if self._pil_circular is not None:
-            # (Re)crear el PhotoImage con el master correcto en cada draw
             self._photo_tk = ImageTk.PhotoImage(self._pil_circular, master=canvas)
             canvas.create_image(self.x, self.y, image=self._photo_tk)
         else:
-            # Ícono por defecto
             canvas.create_oval(
                 self.x - 8, self.y - 13,
                 self.x + 8, self.y + 3,
@@ -263,6 +481,7 @@ class UserIcon:
                 outline=self.palette.user_icon_person,
                 width=4, style='arc'
             )
+
 
 class QuestionButton:
     def __init__(self, x, y, palette, presupuesto=0):
@@ -279,7 +498,6 @@ class QuestionButton:
     def draw(self, canvas):
         half_size = self.size // 2
         
-        # Fondo redondeado
         canvas.create_rectangle(
             self.x - half_size, self.y - half_size,
             self.x + half_size, self.y + half_size,
@@ -287,7 +505,6 @@ class QuestionButton:
             outline=self.palette.question_bg
         )
         
-        # Mostrar presupuesto
         canvas.create_text(
             self.x, self.y,
             text=f"${self.presupuesto}",
@@ -297,7 +514,7 @@ class QuestionButton:
 
 
 class TopRightButton:
-    """Botón START"""
+    """Boton START"""
     def __init__(self, x, y, palette):
         self.x = x
         self.y = y
@@ -333,7 +550,7 @@ class TopRightButton:
 
 
 class ElementButton:
-    """Botón para seleccionar torres"""
+    """Boton para seleccionar torres"""
     def __init__(self, x, y, element_type, palette, game):
         self.x = x
         self.y = y
@@ -393,20 +610,60 @@ class ElementButton:
 
 
 class Grid:
-    """Cuadrícula del juego"""
-    def __init__(self, x, y, rows, cols, cell_size, palette):
+    """Cuadricula del juego"""
+    def __init__(self, x, y, rows, cols, cell_size, palette, sprite_manager):
         self.x = x
         self.y = y
         self.rows = rows
         self.cols = cols
         self.cell_size = cell_size
         self.palette = palette
+        self.sprite_manager = sprite_manager
         self.width = cols * cell_size
         self.height = rows * cell_size
         self.torres_grid = {}
+        self.animation_frame = 0
+        self.animation_speed = 0.3
+        self.last_animation_time = time.time()
+        
+        # Sistema de animaciones de colision
+        self.colisiones_activas = []
+    
+    def agregar_colision(self, x, y):
+        """Agrega una nueva animacion de colision"""
+        self.colisiones_activas.append({
+            'x': x,
+            'y': y,
+            'frame': 0,
+            'tiempo_inicio': time.time()
+        })
+    
+    def actualizar_colisiones(self):
+        """Actualiza y limpia las animaciones de colision"""
+        tiempo_actual = time.time()
+        colisiones_a_eliminar = []
+        
+        for i, colision in enumerate(self.colisiones_activas):
+            tiempo_transcurrido = tiempo_actual - colision['tiempo_inicio']
+            
+            if tiempo_transcurrido < 0.1:
+                colision['frame'] = 0
+            elif tiempo_transcurrido < 0.2:
+                colision['frame'] = 1
+            else:
+                colisiones_a_eliminar.append(i)
+        
+        for i in reversed(colisiones_a_eliminar):
+            self.colisiones_activas.pop(i)
+    
+    def draw_colisiones(self, canvas):
+        """Dibuja las animaciones de colision activas"""
+        for colision in self.colisiones_activas:
+            sprite = self.sprite_manager.get_colision_sprite(colision['frame'], canvas)
+            if sprite:
+                canvas.create_image(colision['x'], colision['y'], image=sprite)
     
     def draw(self, canvas):
-        # Borde
         canvas.create_rectangle(
             self.x - 4, self.y - 4,
             self.x + self.width + 4, self.y + self.height + 4,
@@ -414,7 +671,6 @@ class Grid:
             outline=self.palette.grid_border
         )
         
-        # Celdas
         for row in range(self.rows):
             for col in range(self.cols):
                 x1 = self.x + col * self.cell_size
@@ -432,7 +688,6 @@ class Grid:
                 
                 self.draw_grass_texture(canvas, x1, y1, x2, y2)
         
-        # Líneas del grid
         for col in range(self.cols + 1):
             x_pos = self.x + col * self.cell_size
             canvas.create_line(x_pos, self.y, x_pos, self.y + self.height,
@@ -443,7 +698,6 @@ class Grid:
             canvas.create_line(self.x, y_pos, self.x + self.width, y_pos,
                              fill=self.palette.grid_lines, width=2)
         
-        # Dibujar torres
         for (row, col), torre in self.torres_grid.items():
             self.draw_torre(canvas, torre, row, col)
     
@@ -476,7 +730,6 @@ class Grid:
             font=("Arial", 18)
         )
         
-        # Barra de vida
         vida_percent = torre.vida_actual / torre.vida_maxima
         bar_width = 30
         bar_height = 4
@@ -498,34 +751,59 @@ class Grid:
                 outline=''
             )
     
+    def update_animation_frame(self):
+        """Actualiza el frame de animacion basado en el tiempo"""
+        current_time = time.time()
+        if current_time - self.last_animation_time >= self.animation_speed:
+            self.animation_frame = 1 - self.animation_frame
+            self.last_animation_time = current_time
+    
     def draw_avatares(self, canvas, avatares):
-        """Dibuja los avatares en el grid"""
+        """Dibuja los avatares en el grid con sprites animados"""
+        self.update_animation_frame()
+        
         for avatar in avatares:
             col, row = avatar.posicion
             x = self.x + col * self.cell_size + self.cell_size // 2
             y = self.y + row * self.cell_size + self.cell_size // 2
             
-            radius = 15
-            canvas.create_oval(
-                x - radius, y - radius,
-                x + radius, y + radius,
-                fill=avatar.get_color(),
-                outline='#000000',
-                width=2
-            )
+            sprite = self.sprite_manager.get_sprite(avatar.nombre, self.animation_frame, canvas)
             
-            canvas.create_text(
-                x, y - 3,
-                text=avatar.get_icono(),
-                font=("Arial", 14)
-            )
+            if sprite:
+                canvas.create_image(x, y, image=sprite)
+            else:
+                radius = 15
+                canvas.create_oval(
+                    x - radius, y - radius,
+                    x + radius, y + radius,
+                    fill=avatar.get_color(),
+                    outline='#000000',
+                    width=2
+                )
+                
+                canvas.create_text(
+                    x, y - 3,
+                    text=avatar.get_icono(),
+                    font=("Arial", 14)
+                )
             
-            # Barra de vida
+            # Dibujar arma melee si está atacando
+            if hasattr(avatar, 'esta_atacando_melee') and avatar.esta_atacando_melee:
+                frame_arma = avatar.get_frame_arma()
+                if frame_arma is not None:
+                    arma_sprite = self.sprite_manager.get_arma_sprite(avatar.nombre, frame_arma, canvas)
+                    if arma_sprite:
+                        # Posicionar el arma SOBRE el avatar atacante (no sobre el objetivo)
+                        # Usar las coordenadas del avatar actual, no de la torre adelante
+                        arma_x = x  # Mismo x que el avatar
+                        arma_y = y - 35  # Arriba del avatar (35 píxeles para el arma más grande)
+                        canvas.create_image(arma_x, arma_y, image=arma_sprite)
+            
             vida_percent = avatar.vida / avatar.vida_maxima if avatar.vida_maxima > 0 else 0
             bar_width = 25
             bar_height = 3
             bar_x = x - bar_width // 2
-            bar_y = y + radius + 2
+            bar_y = y + 18
             
             canvas.create_rectangle(
                 bar_x, bar_y,
@@ -543,18 +821,26 @@ class Grid:
                 )
     
     def draw_proyectiles(self, canvas, proyectiles):
-        """Dibuja los proyectiles activos"""
+        """Dibuja los proyectiles activos con sprites personalizados"""
         for proyectil in proyectiles:
             if proyectil.activo:
                 x, y = proyectil.posicion
-                radius = 5
-                canvas.create_oval(
-                    x - radius, y - radius,
-                    x + radius, y + radius,
-                    fill=proyectil.color,
-                    outline='#000000',
-                    width=1
-                )
+                
+                sprite = None
+                if hasattr(proyectil, 'tipo') and proyectil.tipo:
+                    sprite = self.sprite_manager.get_proyectil_sprite(proyectil.tipo, canvas)
+                
+                if sprite:
+                    canvas.create_image(x, y, image=sprite)
+                else:
+                    radius = 5
+                    canvas.create_oval(
+                        x - radius, y - radius,
+                        x + radius, y + radius,
+                        fill=proyectil.color,
+                        outline='#000000',
+                        width=1
+                    )
     
     def draw_monedas(self, canvas, monedas):
         """Dibuja las monedas activas"""
@@ -610,19 +896,20 @@ class VillageGame(tk.Frame):
         self.presupuesto = 350
         self.gestor_rooks = GestorRooks()
         
-        # Gestor de avatares
+        self.sprite_manager = SpriteManager()
+        
         self.gestor_avatares = GestorAvatares(grid_cols=5, nivel=nivel)
         
-        # Sistema de puntos y monedas
         self.sistema_puntos = SistemaPuntos()
         self.sistema_monedas = SistemaMonedas(grid_cols=5, grid_rows=9)
         self.sistema_puntos.sistema_monedas = self.sistema_monedas
         self.gestor_avatares.sistema_puntos = self.sistema_puntos
         
+        self.gestor_avatares.grid_ref = None
+        
         self.esperando_colocacion = None
         self.torre_a_colocar = None
         
-        # Estado del juego
         self.juego_activo = False
         self.juego_terminado = False
         self.tiempo_inicio_juego = None
@@ -646,9 +933,10 @@ class VillageGame(tk.Frame):
         self.grid_x = (self.width - grid_width) // 2
         
         self.grid = Grid(self.grid_x, 100, self.grid_rows, self.grid_cols, 
-                        self.cell_size, self.palette)
+                        self.cell_size, self.palette, self.sprite_manager)
         
-        # Crear casas
+        self.gestor_avatares.grid_ref = self.grid
+        
         self.safe_houses = []
         num_safe_houses = 5
         house_spacing = grid_width // (num_safe_houses + 1)
@@ -658,9 +946,8 @@ class VillageGame(tk.Frame):
             x_pos = self.grid_x + house_spacing * (i + 1) - 17
             self.safe_houses.append(House(x_pos, house_y, self.palette, is_invader=False))
         
-        # UI
         self.user_icon = UserIcon(40, 30, self.palette)
-        self.user_icon.load_from_username(self.current_username)  # <— NUEVO
+        self.user_icon.load_from_username(self.current_username)
         self.question_btn = QuestionButton(self.width - 40, 30, self.palette, self.presupuesto)
         
         grid_right_x = self.grid_x + self.grid.width
@@ -669,7 +956,6 @@ class VillageGame(tk.Frame):
         button_y = grid_top_y + 20
         self.top_right_btn = TopRightButton(button_x, button_y, self.palette)
         
-        # Botones de elementos
         self.element_buttons = []
         element_types = ['sand', 'rock', 'water', 'fire']
         element_x = button_x
@@ -685,9 +971,8 @@ class VillageGame(tk.Frame):
         if self.frecuencias:
             self.gestor_rooks.actualizar_frecuencias(self.frecuencias)
         
-       # Botón Salón de la Fama (debajo del avatar)
         self.btn_salon_fama = tk.Button(
-            self, text="Salón de Fama",
+            self, text="Salon de Fama",
             command=self.abrir_salon_de_la_fama,
             bg=self.palette.safe_houses_roof,
             fg="white",
@@ -703,14 +988,13 @@ class VillageGame(tk.Frame):
         self.animate()
     
     def abrir_salon_de_la_fama(self):
-        # Abre el Salón de la Fama en un Toplevel (ventana hija)
         top = tk.Toplevel(self)
         top.transient(self.winfo_toplevel())
         try:
             from SalonFama import SalonFama
             SalonFama(top, top_limit=10)
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo abrir el Salón de la Fama.\n{e}")
+            messagebox.showerror("Error", f"No se pudo abrir el Salon de la Fama.\n{e}")
 
     def draw_zones(self):
         self.canvas.create_rectangle(
@@ -734,16 +1018,16 @@ class VillageGame(tk.Frame):
         self.draw_zones()
         self.grid.draw(self.canvas)
         
-        # Dibujar avatares
         self.grid.draw_avatares(self.canvas, self.gestor_avatares.get_avatares_activos())
         
-        # ✅ Dibujar TODOS los proyectiles (torres + avatares)
         proyectiles_todos = []
         proyectiles_todos += self.gestor_rooks.get_todos_proyectiles()
         proyectiles_todos += self.gestor_avatares.get_todos_proyectiles()
         self.grid.draw_proyectiles(self.canvas, proyectiles_todos)
 
-        # Dibujar monedas
+        self.grid.actualizar_colisiones()
+        self.grid.draw_colisiones(self.canvas)
+
         tiempo_actual = time.time()
         monedas = self.sistema_monedas.get_monedas_activas(tiempo_actual)
         self.grid.draw_monedas(self.canvas, monedas)
@@ -756,13 +1040,11 @@ class VillageGame(tk.Frame):
         self.question_btn.draw(self.canvas)
         self.top_right_btn.draw(self.canvas)
         
-        # Re-anclar el botón "Salón de la Fama" en cada draw,
-        # debajo del avatar y con el MISMO tamaño que START.
         self.canvas.create_window(
-            70, 115,                           # x, y (debajo del círculo del avatar)
+            70, 115,
             window=self.btn_salon_fama,
-            width=self.top_right_btn.width + 40,   # 80 px (igual que START)
-            height=self.top_right_btn.height, # 40 px (igual que START)
+            width=self.top_right_btn.width + 40,
+            height=self.top_right_btn.height,
             anchor="center"
         )
 
@@ -773,40 +1055,34 @@ class VillageGame(tk.Frame):
             self.draw_stats()
     
     def animate(self):
-        """✅ Actualización completa del juego con proyectiles de avatares"""
+        """Actualizacion completa del juego con proyectiles de avatares"""
         if self.juego_activo and not self.juego_terminado:
             tiempo_actual = time.time()
             dt = tiempo_actual - self.ultimo_tiempo
             self.ultimo_tiempo = tiempo_actual
             
-            # Configuración del grid
             grid_config = {
                 'x': self.grid_x,
                 'y': 100,
                 'cell_size': self.cell_size
             }
             
-            # ✅ Actualizar torres (disparos automáticos)
             self.gestor_rooks.actualizar(dt, tiempo_actual, grid_config)
             
-            # ✅ Actualizar avatares (movimiento, disparos, ataques melee)
             self.gestor_avatares.actualizar(dt, self.grid.torres_grid, grid_config)
             
-            # ✅ Verificar colisiones: proyectiles de torres → avatares
             proyectiles_torres = self.gestor_rooks.get_todos_proyectiles()
             self.gestor_avatares.verificar_colisiones_proyectiles(proyectiles_torres)
             
-            # Actualizar monedas
             self.sistema_monedas.update(tiempo_actual)
             
-            # Otras verificaciones
             self.verificar_avatares_en_casas()
             self.limpiar_torres_destruidas()
             self.verificar_fin_juego()
             
             self.draw()
         
-        self.after(16, self.animate)  # 60 FPS
+        self.after(16, self.animate)
     
     def draw_stats(self):
         stats_avatares = self.gestor_avatares.get_estadisticas()
@@ -815,7 +1091,7 @@ class VillageGame(tk.Frame):
         texto1 = f"👾: {stats_avatares['spawneados']} | 💀: {stats_avatares['eliminados']} | 🏠: {stats_avatares['llegaron_meta']} | ⚡: {stats_avatares['activos']}"
         
         progreso = int(stats_puntos['progreso_spawn'] * 100)
-        texto2 = f"🎯 Puntos: {stats_puntos['puntos_totales']} | 💰 Próximo: {stats_puntos['puntos_para_spawn']}/30 ({progreso}%) | 💵 ${stats_puntos['dinero_spawneado']}"
+        texto2 = f"🎯 Puntos: {stats_puntos['puntos_totales']} | 💰 Proximo: {stats_puntos['puntos_para_spawn']}/30 ({progreso}%) | 💵 ${stats_puntos['dinero_spawneado']}"
         
         self.canvas.create_text(
             self.width // 2, 710,
@@ -838,14 +1114,18 @@ class VillageGame(tk.Frame):
                 for house in self.safe_houses:
                     house_col = int((house.x - self.grid_x + 17) / (self.grid.width / len(self.safe_houses)))
                     if abs(house_col - col) <= 0:
-                        house.recibir_daño(avatar.ataque)
+                        house.recibir_dano(avatar.ataque)
                         if house.esta_destruida():
-                            print(f"   💥 ¡Casa destruida!")
+                            print(f"   💥 Casa destruida!")
     
     def limpiar_torres_destruidas(self):
         torres_a_eliminar = []
         for pos, torre in self.grid.torres_grid.items():
             if not torre.activa:
+                # CRÍTICO: Desactivar todos los proyectiles de esta torre
+                for proyectil in torre.proyectiles:
+                    proyectil.desactivar()
+                torre.proyectiles.clear()
                 torres_a_eliminar.append(pos)
         
         for pos in torres_a_eliminar:
@@ -890,8 +1170,8 @@ class VillageGame(tk.Frame):
         stats_puntos = self.sistema_puntos.get_estadisticas()
 
         if victoria:
-            titulo = "🎉 ¡VICTORIA!"
-            mensaje = f"¡Has defendido tu aldea!\n\n"
+            titulo = "🎉 VICTORIA!"
+            mensaje = f"Has defendido tu aldea!\n\n"
             mensaje += f"Enemigos eliminados: {stats['eliminados']}\n"
             mensaje += f"Puntos: {stats_puntos['puntos_totales']}\n"
             mensaje += f"Dinero: ${stats_puntos['dinero_spawneado']}"
@@ -916,15 +1196,15 @@ class VillageGame(tk.Frame):
             if getattr(self, 'current_username', None):
                 try:
                     self._actualizar_pts_salon(self.current_username, puntaje_final)
-                    print(f"🏆 Salón de la Fama actualizado para @{self.current_username}: {puntaje_final:.0f} pts")
+                    print(f"🏆 Salon de la Fama actualizado para @{self.current_username}: {puntaje_final:.0f} pts")
                 except Exception as e:
-                    print(f"⚠ No se pudo actualizar Salón de la Fama: {e}")
+                    print(f"⚠ No se pudo actualizar Salon de la Fama: {e}")
             else:
-                print("ℹ No se actualizó Salón de la Fama (username desconocido).")
+                print("ℹ No se actualizo Salon de la Fama (username desconocido).")
 
             self.after(10, lambda: self._abrir_animacion(
                 ("win0", "win1", "win2"),
-                "¡Defendiste la aldea de los avatars!"
+                "Defendiste la aldea de los avatars!"
             ))
             return
         else:
@@ -949,10 +1229,9 @@ class VillageGame(tk.Frame):
                 if (row, col) not in self.grid.torres_grid:
                     self.colocar_torre(row, col)
                 else:
-                    messagebox.showinfo("Celda ocupada", "Ya hay una torre aquí")
+                    messagebox.showinfo("Celda ocupada", "Ya hay una torre aqui")
             return
         
-        # Recolectar moneda
         if self.juego_activo and not self.esperando_colocacion:
             cell = self.grid.get_cell_from_coords(event.x, event.y)
             if cell:
@@ -992,14 +1271,20 @@ class VillageGame(tk.Frame):
                 self.grid_x + col * self.cell_size + self.cell_size // 2,
                 100 + row * self.cell_size + self.cell_size // 2
             ]
-            torre = self.torre_a_colocar['class']()
             
-            self.gestor_rooks.agregar_torre(torre.tipo, row, col)
-            self.grid.add_torre(torre, row, col)
+            # Crear torre en gestor_rooks y obtener la instancia
+            torre_tipo = self.torre_a_colocar['class']().tipo
+            torre = self.gestor_rooks.agregar_torre(torre_tipo, row, col)
             
-            self.presupuesto -= self.torre_a_colocar['price']
-            
-            print(f"✅ Torre colocada | Presupuesto: ${self.presupuesto}")
+            if torre:  # Si se creó exitosamente
+                # Usar la MISMA instancia en el grid
+                self.grid.add_torre(torre, row, col)
+                
+                self.presupuesto -= self.torre_a_colocar['price']
+                
+                print(f"✅ Torre colocada | Presupuesto: ${self.presupuesto}")
+            else:
+                print(f"❌ No se pudo colocar la torre")
             
             self.esperando_colocacion = None
             self.torre_a_colocar = None
@@ -1007,7 +1292,7 @@ class VillageGame(tk.Frame):
             self.draw()
     
     def on_top_right_button_pressed(self):
-        print("\n🎮 ¡JUEGO INICIADO!")
+        print("\n🎮 JUEGO INICIADO!")
         print(f"Nivel: {self.nivel}")
         print(f"Presupuesto: ${self.presupuesto}")
         
@@ -1050,13 +1335,12 @@ class AnimationWindow(tk.Toplevel):
     def __init__(self, master=None, image_basenames=("win0","win1","win2"), message_text=""):
         super().__init__(master)
         self.title("Resultado")
-        self.geometry("800x500")              # tamaño inicial; se puede cambiar
+        self.geometry("800x500")
         self.resizable(True, True)
 
         import os
-        from PIL import Image, ImageTk  # type: ignore
+        from PIL import Image, ImageTk
 
-        # --- Cargar imágenes originales en PIL (no PhotoImage aún) ---
         self._orig_frames = []
         exts = [".png", ".gif", ".jpg", ".jpeg"]
         for base in image_basenames:
@@ -1072,34 +1356,28 @@ class AnimationWindow(tk.Toplevel):
                 except Exception:
                     pass
 
-        # Contenedor (Label) que SIEMPRE llena toda la ventana
         self._label = tk.Label(self, borderwidth=0, highlightthickness=0)
         self._label.pack(fill="both", expand=True)
 
-        # Overlays (NO ocupan layout): mensaje y botón
         self._msg = tk.Label(self, text=message_text, font=("Arial", 16, "bold"),
                              bg="#000000", fg="white", padx=10, pady=5)
-        self._msg.place(relx=0.5, rely=0.04, anchor="n")  # arriba, centrado
+        self._msg.place(relx=0.5, rely=0.04, anchor="n")
 
         self._btn = tk.Button(self, text="Cerrar", command=self._on_close)
-        self._btn.place(relx=0.5, rely=0.96, anchor="s")  # abajo, centrado
+        self._btn.place(relx=0.5, rely=0.96, anchor="s")
 
-        # Estado
         self._idx = 0
         self._running = True
-        self._photo_cache = None  # PhotoImage actual
+        self._photo_cache = None
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # Redibuja al cambiar tamaño de ventana
         self.bind("<Configure>", self._on_resize)
 
-        # Arranca animación
         if not self._orig_frames:
-            self._label.configure(text="No se hallaron imágenes para la animación.")
+            self._label.configure(text="No se hallaron imagenes para la animacion.")
         else:
             self._tick()
 
-    # Crea un PhotoImage ajustado al tamaño actual
     def _render_current_frame(self):
         if not self._orig_frames:
             return
@@ -1111,23 +1389,20 @@ class AnimationWindow(tk.Toplevel):
         self._label.configure(image=self._photo_cache)
         self._label.image = self._photo_cache
 
-
     def _tick(self):
         if not self._running or not self._orig_frames:
             return
         self._render_current_frame()
         self._idx = (self._idx + 1) % len(self._orig_frames)
-        self.after(1000, self._tick)  # cada 1 segundo
+        self.after(1000, self._tick)
 
     def _on_resize(self, event):
-        # Si está corriendo, re-render del frame actual para llenar toda la ventana
         if self._running and self._orig_frames:
             self._render_current_frame()
 
     def _on_close(self):
         self._running = False
         self.destroy()
-
 
 
 class VillageGameWindow:

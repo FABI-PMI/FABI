@@ -65,7 +65,7 @@ class Leñador(Avatar):
 
 class Canibal(Avatar):
     def __init__(self):
-        super().__init__(vida=25, ataque=12, cd_mover=14.0, cd_atacar=3.0, solo_torre_en_frente=True, nombre="Caníbal")
+        super().__init__(vida=25, ataque=12, cd_mover=14.0, cd_atacar=3.0, solo_torre_en_frente=True, nombre="Canibal")
 
 # ----------------- Gestor de Avatares -----------------
 class GestorAvatares:
