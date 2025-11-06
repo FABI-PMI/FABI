@@ -635,26 +635,40 @@ class Registro:
         ventana.protocol("WM_DELETE_WINDOW", lambda: [ventana.destroy(), self.root.destroy()])
 
     def volver_a_personalizacion(self):
-        """Abre personalización correctamente sin crear nuevo root"""
-        from ventana_personalizacion import ColorSelectorApp
-        
-        # ✅ Usar Toplevel en lugar de nuevo Tk()
-        ventana = tk.Toplevel()
-        ventana.title("Personalización")
-        
-        try:
-            ColorSelectorApp(ventana)
-        except Exception as e:
-            messagebox.showerror('Error', f'No se pudo abrir Personalización: {e}')
-            ventana.destroy()
-            self.root.deiconify()  # Volver a mostrar registro si falla
+        """Abre personalización como proceso independiente"""
+        import subprocess
+        import sys
+    
+        print("🎨 Abriendo personalización...")
+    
+    # Obtener ruta del script de personalización
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        personalizacion_path = os.path.join(script_dir, 'ventana_personalizacion.py')
+    
+    # Verificar que existe el archivo
+        if not os.path.exists(personalizacion_path):
+            messagebox.showerror(
+            "Error", 
+                f"No se encontró ventana_personalizacion.py en:\n{personalizacion_path}"
+        )
             return
+    
+        try:
+        # Cerrar registro DESPUÉS de abrir personalización
+            subprocess.Popen([sys.executable, personalizacion_path])
         
-        # Ocultar registro (NO destruir aún)
-        self.root.withdraw()
+        # Esperar un momento para que se abra
+            self.root.after(500, self.root.destroy)
         
-        # Cuando se cierre personalización, cerrar todo
-        ventana.protocol("WM_DELETE_WINDOW", lambda: [ventana.destroy(), self.root.destroy()])
+            print("✓ Personalización abierta correctamente")
+        
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror(
+                'Error', 
+                f'No se pudo abrir Personalización:\n{e}'
+        )
     
     def activar_face_recognition(self):
         """Activa el reconocimiento facial"""

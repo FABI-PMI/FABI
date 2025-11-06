@@ -110,8 +110,8 @@ class House:
         self.size = 35
         
         # Sistema de vida
-        self.vida_maxima = 100
-        self.vida_actual = 100
+        self.vida_maxima = 10
+        self.vida_actual = 10
     
     def recibir_daño(self, daño):
         """Reduce la vida de la casa"""
