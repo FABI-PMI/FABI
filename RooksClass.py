@@ -18,9 +18,9 @@ class Proyectil:
             self.posicion[0] += self.direccion[0] * self.velocidad * dt
             self.posicion[1] += self.direccion[1] * self.velocidad * dt
     
-    def esta_fuera_pantalla(self, altura_pantalla=750):
-        """Verifica si el proyectil salió de la pantalla"""
-        return self.posicion[1] > altura_pantalla or self.posicion[1] < 0
+    def esta_fuera_pantalla(self, grid_y_min=100, grid_y_max=640):
+        """Verifica si el proyectil salió de los límites del grid"""
+        return self.posicion[1] > grid_y_max or self.posicion[1] < grid_y_min
     
     def desactivar(self):
         """Desactiva el proyectil"""
@@ -69,8 +69,8 @@ class Rook:
         
         return None
     
-    def actualizar_proyectiles(self, dt):
-        """✅ CORREGIDO: Limpia proyectiles desactivados inmediatamente"""
+    def actualizar_proyectiles(self, dt, grid_y_min=100, grid_y_max=640):
+        """✅ CORREGIDO: Limpia proyectiles desactivados inmediatamente y respeta límites del grid"""
         for proyectil in self.proyectiles[:]:
             if not proyectil.activo:
                 self.proyectiles.remove(proyectil)
@@ -78,7 +78,7 @@ class Rook:
             
             proyectil.actualizar(dt)
             
-            if proyectil.esta_fuera_pantalla():
+            if proyectil.esta_fuera_pantalla(grid_y_min, grid_y_max):
                 proyectil.desactivar()
                 self.proyectiles.remove(proyectil)
     
@@ -211,8 +211,10 @@ class GestorRooks:
             # Disparar hacia abajo automáticamente según frecuencia
             torre.disparar(tiempo_actual, posicion_torre)
             
-            # Actualizar proyectiles
-            torre.actualizar_proyectiles(dt)
+            # Actualizar proyectiles con límites del grid
+            grid_y_min = grid_config['y']
+            grid_y_max = grid_config['y'] + (grid_config['rows'] * grid_config['cell_size'])
+            torre.actualizar_proyectiles(dt, grid_y_min, grid_y_max)
     
     def get_todos_proyectiles(self):
         """Retorna todos los proyectiles activos de todas las torres"""

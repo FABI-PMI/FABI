@@ -1,6 +1,6 @@
 """
 Archivo principal del juego - Avatar vs Rooks
-Muestra splash screen y luego el sistema de login
+Muestra splash screen y luego el sistema de login   
 """
 import tkinter as tk
 from SplashScreen import SplashScreen

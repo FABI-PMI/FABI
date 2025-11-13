@@ -338,6 +338,17 @@ class House:
         self.palette = palette
         self.is_invader = is_invader
         self.size = 35
+        
+        self.vida_maxima = 100
+        self.vida_actual = 100
+    
+    def recibir_dano(self, dano):
+        """Reduce la vida de la casa"""
+        self.vida_actual = max(0, self.vida_actual - dano)
+    
+    def esta_destruida(self):
+        """Verifica si la casa esta destruida"""
+        return self.vida_actual <= 0
     
     def get_colors(self):
         """Obtiene los colores segun el tipo de casa"""
@@ -383,6 +394,28 @@ class House:
             self.x + 14, self.y + 25,
             fill=colors['window'], outline=colors['window']
         )
+        
+        if not self.is_invader:
+            vida_percent = self.vida_actual / self.vida_maxima
+            bar_width = self.size
+            bar_height = 4
+            bar_x = self.x
+            bar_y = self.y + self.size + 3
+            
+            canvas.create_rectangle(
+                bar_x, bar_y,
+                bar_x + bar_width, bar_y + bar_height,
+                fill='#cc0000',
+                outline='#333333'
+            )
+            
+            if vida_percent > 0:
+                canvas.create_rectangle(
+                    bar_x, bar_y,
+                    bar_x + (bar_width * vida_percent), bar_y + bar_height,
+                    fill='#00cc00',
+                    outline=''
+                )
 
 
 class UserIcon:
@@ -882,11 +915,6 @@ class VillageGame(tk.Frame):
         self.tiempo_inicio_juego = None
         self.ultimo_tiempo = time.time()
         
-        # Cache para evitar calcular popularidad/tempo en cada frame
-        self.ultimo_calculo_stats = 0
-        self.tempo_cache = 0.0
-        self.popularidad_cache = 0.0
-        
         self.palette = ColorPalette(initial_palette)
         
         self.canvas = Canvas(
@@ -1023,23 +1051,8 @@ class VillageGame(tk.Frame):
         for element_btn in self.element_buttons:
             element_btn.draw(self.canvas)
         
-        # Mostrar stats durante el juego
         if self.juego_activo:
             self.draw_stats()
-        else:
-            # Antes del juego, mostrar valores en 0
-            self.canvas.create_text(
-                self.width // 2, 710,
-                text="⏱️ Tiempo: 0:00",
-                font=("Arial", 11, "bold"),
-                fill="white"
-            )
-            self.canvas.create_text(
-                self.width // 2, 730,
-                text="🏆 Puntos: 0",
-                font=("Arial", 11, "bold"),
-                fill="#FFD700"
-            )
     
     def animate(self):
         """Actualizacion completa del juego con proyectiles de avatares"""
@@ -1051,8 +1064,7 @@ class VillageGame(tk.Frame):
             grid_config = {
                 'x': self.grid_x,
                 'y': 100,
-                'cell_size': self.cell_size,
-                'rows': self.grid_rows
+                'cell_size': self.cell_size
             }
             
             self.gestor_rooks.actualizar(dt, tiempo_actual, grid_config)
@@ -1073,69 +1085,38 @@ class VillageGame(tk.Frame):
         self.after(16, self.animate)
     
     def draw_stats(self):
-        """Muestra solo tiempo y puntos calculados con ptsSalonFama"""
-        # Calcular tiempo transcurrido
-        if self.tiempo_inicio_juego:
-            tiempo_transcurrido = time.time() - self.tiempo_inicio_juego
-            minutos = int(tiempo_transcurrido // 60)
-            segundos = int(tiempo_transcurrido % 60)
-            texto_tiempo = f"⏱️ Tiempo: {minutos:02d}:{segundos:02d}"
-        else:
-            texto_tiempo = "⏱️ Tiempo: 0:00"
-        
-        # Actualizar caché de tempo/popularidad solo cada segundo (evitar spam de warnings)
-        tiempo_actual = time.time()
-        if tiempo_actual - self.ultimo_calculo_stats >= 1.0:
-            self.ultimo_calculo_stats = tiempo_actual
-            
-            # Calcular tempo
-            try:
-                tempo = float(get_bpm_snapshot(4.0))
-                self.tempo_cache = tempo if tempo > 0 else 0.0
-            except Exception:
-                self.tempo_cache = 0.0
-            
-            # Calcular popularidad
-            try:
-                pop = get_popularidad()
-                self.popularidad_cache = float(pop) if pop is not None else 0.0
-            except Exception:
-                self.popularidad_cache = 0.0
-        
-        # Usar valores cacheados
-        tempo = self.tempo_cache
-        popularidad = self.popularidad_cache
-        
-        stats = self.gestor_avatares.get_estadisticas()
+        stats_avatares = self.gestor_avatares.get_estadisticas()
         stats_puntos = self.sistema_puntos.get_estadisticas()
         
-        avatars_matados = int(stats.get('eliminados', 0))
-        puntos_avatar = float(stats_puntos.get('puntos_totales', 0))
-        limite_maximo = 9999.0
+        texto1 = f"👾: {stats_avatares['spawneados']} | 💀: {stats_avatares['eliminados']} | 🏠: {stats_avatares['llegaron_meta']} | ⚡: {stats_avatares['activos']}"
         
-        puntos_salon_fama = pts_salon(tempo, popularidad, avatars_matados, puntos_avatar, limite_maximo)
+        progreso = int(stats_puntos['progreso_spawn'] * 100)
+        texto2 = f"🎯 Puntos: {stats_puntos['puntos_totales']} | 💰 Proximo: {stats_puntos['puntos_para_spawn']}/30 ({progreso}%) | 💵 ${stats_puntos['dinero_spawneado']}"
         
-        texto_puntos = f"🏆 Puntos: {int(puntos_salon_fama)}"
-        
-        # Dibujar tiempo
         self.canvas.create_text(
             self.width // 2, 710,
-            text=texto_tiempo,
-            font=("Arial", 11, "bold"),
+            text=texto1,
+            font=("Arial", 9, "bold"),
             fill="white"
         )
         
-        # Dibujar puntos
         self.canvas.create_text(
             self.width // 2, 730,
-            text=texto_puntos,
-            font=("Arial", 11, "bold"),
+            text=texto2,
+            font=("Arial", 9, "bold"),
             fill="#FFD700"
         )
     
     def verificar_avatares_en_casas(self):
-        """Método simplificado - las casas ya no reciben daño"""
-        pass
+        for avatar in self.gestor_avatares.get_avatares_activos():
+            if avatar.posicion[1] == 0:
+                col = avatar.posicion[0]
+                for house in self.safe_houses:
+                    house_col = int((house.x - self.grid_x + 17) / (self.grid.width / len(self.safe_houses)))
+                    if abs(house_col - col) <= 0:
+                        house.recibir_dano(avatar.ataque)
+                        if house.esta_destruida():
+                            print(f"   💥 Casa destruida!")
     
     def limpiar_torres_destruidas(self):
         torres_a_eliminar = []
@@ -1153,21 +1134,14 @@ class VillageGame(tk.Frame):
         self.gestor_rooks.eliminar_torres_destruidas()
     
     def verificar_fin_juego(self):
-        """Verifica las condiciones de fin de juego"""
-        stats = self.gestor_avatares.get_estadisticas()
-        
-        # PERDER: Si algún avatar pasó arriba
-        if stats['llegaron_meta'] > 0:
-            self.terminar_juego(victoria=False, razon="avatares_pasaron")
+        casas_vivas = sum(1 for house in self.safe_houses if not house.esta_destruida())
+        if casas_vivas == 0:
+            self.terminar_juego(victoria=False)
             return
         
-        # GANAR: 60 segundos sin que ningún avatar haya pasado
-        if self.tiempo_inicio_juego:
-            tiempo_transcurrido = time.time() - self.tiempo_inicio_juego
-            
-            # Si han pasado 60 segundos Y NO ha pasado ningún avatar
-            if tiempo_transcurrido >= 60:
-                self.terminar_juego(victoria=True)
+        stats = self.gestor_avatares.get_estadisticas()
+        if stats['eliminados'] >= 50:
+            self.terminar_juego(victoria=True)
     
     def _actualizar_pts_salon(self, username: str, nuevo_pts: float):
         try:
@@ -1185,7 +1159,7 @@ class VillageGame(tk.Frame):
         usuarios[username]['pts'] = int(round(mejor))
         guardar_usuarios(usuarios)
 
-    def terminar_juego(self, victoria, razon=None):
+    def terminar_juego(self, victoria):
         if self.juego_terminado:
             return
 
@@ -1196,7 +1170,12 @@ class VillageGame(tk.Frame):
         stats_puntos = self.sistema_puntos.get_estadisticas()
 
         if victoria:
-            # Calcular ptsSalonFama
+            titulo = "🎉 VICTORIA!"
+            mensaje = f"Has defendido tu aldea!\n\n"
+            mensaje += f"Enemigos eliminados: {stats['eliminados']}\n"
+            mensaje += f"Puntos: {stats_puntos['puntos_totales']}\n"
+            mensaje += f"Dinero: ${stats_puntos['dinero_spawneado']}"
+
             try:
                 tempo = float(get_bpm_snapshot(4.0))
             except Exception:
@@ -1213,11 +1192,6 @@ class VillageGame(tk.Frame):
             limite_maximo = 9999.0
 
             puntaje_final = pts_salon(tempo, popularidad, avatars_matados, puntos_avatar, limite_maximo)
-
-            titulo = "🎉 VICTORIA!"
-            mensaje = f"¡Sobreviviste 60 segundos sin dejar pasar ningún avatar!\n\n"
-            mensaje += f"🏆 Puntos Salón de la Fama: {int(puntaje_final)}\n"
-            mensaje += f"💀 Enemigos eliminados: {avatars_matados}"
 
             if getattr(self, 'current_username', None):
                 try:
@@ -1230,51 +1204,17 @@ class VillageGame(tk.Frame):
 
             self.after(10, lambda: self._abrir_animacion(
                 ("win0", "win1", "win2"),
-                f"¡Defendiste la aldea!\n{int(puntaje_final)} puntos"
+                "Defendiste la aldea de los avatars!"
             ))
             return
         else:
-            # Calcular ptsSalonFama incluso en derrota
-            try:
-                tempo = float(get_bpm_snapshot(4.0))
-            except Exception:
-                tempo = 0.0
-
-            try:
-                pop = get_popularidad()
-                popularidad = float(pop) if pop is not None else 0.0
-            except Exception:
-                popularidad = 0.0
-
-            avatars_matados = int(stats.get('eliminados', 0))
-            puntos_avatar = float(stats_puntos.get('puntos_totales', 0))
-            limite_maximo = 9999.0
-
-            puntaje_final = pts_salon(tempo, popularidad, avatars_matados, puntos_avatar, limite_maximo)
-            
             titulo = "💀 DERROTA"
-            
-            # Mensaje específico según la razón de derrota
-            if razon == "avatares_pasaron":
-                avatares_pasados = stats.get('llegaron_meta', 0)
-                mensaje = f"¡{avatares_pasados} avatar(es) pasaron a tu aldea!\n\n"
-            else:
-                mensaje = f"Tu aldea fue destruida.\n\n"
-            
-            mensaje += f"🏆 Puntos Salón de la Fama: {int(puntaje_final)}\n"
-            mensaje += f"💀 Enemigos eliminados: {avatars_matados}"
-            
-            # Actualizar pts incluso en derrota
-            if getattr(self, 'current_username', None):
-                try:
-                    self._actualizar_pts_salon(self.current_username, puntaje_final)
-                    print(f"🏆 Salon de la Fama actualizado para @{self.current_username}: {puntaje_final:.0f} pts")
-                except Exception as e:
-                    print(f"⚠ No se pudo actualizar Salon de la Fama: {e}")
-            
+            mensaje = f"Tu aldea fue destruida.\n\n"
+            mensaje += f"Enemigos eliminados: {stats['eliminados']}\n"
+            mensaje += f"Puntos: {stats_puntos['puntos_totales']}"
             self.after(10, lambda: self._abrir_animacion(
                 ("fail0", "fail1", "fail2"),
-                f"Tu aldea fue dominada.\n{int(puntaje_final)} puntos"
+                "Tu aldea fue dominada por los avatars."
             ))
         return
     
