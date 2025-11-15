@@ -1,5 +1,28 @@
+"""
+Sistema de Torres (Rooks) para el juego Avatars vs Rooks
+Incluye sistema de sonido integrado
+"""
 import time
 import math
+
+# Variable global para el sound manager (se inicializa desde VentanaPrincipal)
+_sound_manager = None
+
+def get_sound_manager():
+    """Obtiene la instancia global del gestor de sonidos"""
+    global _sound_manager
+    if _sound_manager is None:
+        # Importación diferida para evitar circular import
+        try:
+            import VentanaPrincipal
+            _sound_manager = VentanaPrincipal.get_sound_manager()
+        except (ImportError, AttributeError):
+            # Fallback: crear dummy sound manager
+            class DummySound:
+                def reproducir(self, tipo): pass
+                def detener_todos(self): pass
+            _sound_manager = DummySound()
+    return _sound_manager
 
 class Proyectil:
     """Clase para los proyectiles disparados por las torres"""
@@ -11,6 +34,7 @@ class Proyectil:
         self.tipo = tipo
         self.activo = True
         self.direccion = [0, 1]  # DIRECCIÓN HACIA ABAJO (y positivo)
+        self.ha_sonado = False  # ✅ NUEVO: Para evitar reproducir el sonido múltiples veces
     
     def actualizar(self, dt):
         """Actualiza la posición del proyectil"""
@@ -22,8 +46,19 @@ class Proyectil:
         """Verifica si el proyectil salió de los límites del grid"""
         return self.posicion[1] > grid_y_max or self.posicion[1] < grid_y_min
     
-    def desactivar(self):
-        """Desactiva el proyectil"""
+    def desactivar(self, por_impacto=False):
+        """
+        Desactiva el proyectil
+        
+        Args:
+            por_impacto: True si se desactiva por impacto con un avatar
+        """
+        if self.activo and por_impacto and not self.ha_sonado:
+            # ✅ NUEVO: Reproducir sonido solo al impactar
+            sound_manager = get_sound_manager()
+            sound_manager.reproducir(self.tipo)
+            self.ha_sonado = True
+        
         self.activo = False
 
 
@@ -79,7 +114,7 @@ class Rook:
             proyectil.actualizar(dt)
             
             if proyectil.esta_fuera_pantalla(grid_y_min, grid_y_max):
-                proyectil.desactivar()
+                proyectil.desactivar(por_impacto=False)  # ✅ MODIFICADO: No es impacto
                 self.proyectiles.remove(proyectil)
     
     def recibir_damage(self, damage):
@@ -87,9 +122,9 @@ class Rook:
         self.vida_actual = max(0, self.vida_actual - damage)
         if self.vida_actual <= 0:
             self.activa = False
-            # DESACTIVAR TODOS LOS PROYECTILES INMEDIATAMENTE
+            # DESACTIVAR TODOS LOS PROYECTILES INMEDIATAMENTE (sin sonido)
             for proyectil in self.proyectiles:
-                proyectil.desactivar()
+                proyectil.desactivar(por_impacto=False)  # ✅ MODIFICADO: No es impacto
             self.proyectiles.clear()  # Limpiar la lista
             print(f"   💥 Torre de {self.tipo} destruida!")
     
@@ -188,9 +223,9 @@ class GestorRooks:
         torres_a_eliminar = []
         for pos, torre in list(self.torres.items()):
             if not torre.esta_viva() or not torre.activa:
-                # Desactivar todos los proyectiles de esta torre
+                # Desactivar todos los proyectiles de esta torre (sin sonido)
                 for proyectil in torre.proyectiles:
-                    proyectil.desactivar()
+                    proyectil.desactivar(por_impacto=False)  # ✅ MODIFICADO: No es impacto
                 torre.proyectiles.clear()
                 torres_a_eliminar.append(pos)
         
@@ -228,9 +263,9 @@ class GestorRooks:
         torres_a_eliminar = []
         for pos, torre in self.torres.items():
             if not torre.activa:
-                # Desactivar todos los proyectiles de esta torre
+                # Desactivar todos los proyectiles de esta torre (sin sonido)
                 for proyectil in torre.proyectiles:
-                    proyectil.desactivar()
+                    proyectil.desactivar(por_impacto=False)  # ✅ MODIFICADO: No es impacto
                 torre.proyectiles.clear()
                 torres_a_eliminar.append(pos)
         

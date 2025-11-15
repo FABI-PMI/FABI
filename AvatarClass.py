@@ -424,7 +424,7 @@ class GestorAvatares:
                         x, y = self._centro_avatar_px(avatar)
                         self.grid_ref.agregar_colision(x, y)
                     
-                    proyectil.desactivar()
+                    proyectil.desactivar(por_impacto=True)
                     if proyectil not in proyectiles_a_remover:
                         proyectiles_a_remover.append(proyectil)
                     

@@ -1,1093 +1,1659 @@
 """
-Ventana de personalización con preview del juego en tiempo real.
-Versión mejorada sin playsound (solo VLC y pygame)
+Sistema de juego de aldeas con cuadricula.
+Version completamente en Tkinter (sin Pygame).
+Con sistema de puntos y monedas integrado.
+VERSION CON SPRITES ANIMADOS: Los avatares alternan entre imagenes de paso
+VERSION CON SONIDO: Las torres reproducen sonidos al impactar
 """
-import tkinter as tk
-from tkinter import messagebox
-import math
-import sys
+import io, base64
+from ptsSalon import pts as pts_salon
+from ventana_personalizacion import get_popularidad
+from bpm_live import get_bpm_snapshot
+from Login import cargar_usuarios, guardar_usuarios
+from PIL import Image, ImageTk
 import os
-import json
-import tempfile
-POPULARIDAD_PATH = os.path.join(tempfile.gettempdir(), "fabi_popularidad.json")
 
-
-# Configuración de rutas para importaciones
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
-
-# Intentar importar módulos del juego
-try:
-    from PaletaColores import generate_palette
-    from VentanaPrincipal import VillageGame
-    GAME_AVAILABLE = True
-except ImportError as e:
-    GAME_AVAILABLE = False
-
-# Intentar importar módulos de música
-try:
-    from yt_dlp import YoutubeDL
-    YT_DLP_AVAILABLE = True
-except ImportError:
-    YT_DLP_AVAILABLE = False
-
-# Sistema mejorado de detección de reproductores (SIN PLAYSOUND)
-AUDIO_PLAYER = None
-VLC_ERROR = None
-PYGAME_ERROR = None
-
-# Intentar VLC primero
-try:
-    import os
-    import sys
-    
-    # Agregar rutas comunes de VLC en Windows
-    vlc_paths = [
-        r'C:\Program Files\VideoLAN\VLC',
-        r'C:\Program Files (x86)\VideoLAN\VLC',
-    ]
-    
-    # Agregar la ruta de VLC al PATH si existe
-    vlc_found = False
-    for vlc_path in vlc_paths:
-        if os.path.exists(vlc_path):
-            os.environ['PATH'] = vlc_path + ';' + os.environ.get('PATH', '')
-            print(f"✓ VLC encontrado en: {vlc_path}")
-            vlc_found = True
-            break
-    
-    if not vlc_found:
-        print("⚠ VLC no encontrado en rutas por defecto")
-    
-    # Intentar importar el módulo VLC
-    import vlc
-    
-    # Verificar que VLC funcione creando una instancia de prueba
-    test_instance = vlc.Instance('--no-video', '--quiet')
-    test_player = test_instance.media_player_new()
-    
-    AUDIO_PLAYER = 'vlc'
-    print("✓ VLC detectado y funcionando correctamente")
-    
-except Exception as e:
-    VLC_ERROR = str(e)
-    print(f"✗ VLC no disponible: {e}")
-    AUDIO_PLAYER = None
-
-# Si VLC falla, intentar pygame
-if AUDIO_PLAYER is None:
-    try:
-        from pygame import mixer
-        # Probar inicializar pygame
-        mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
-        mixer.quit()  # Cerrar por ahora, se reiniciará después
-        
-        AUDIO_PLAYER = 'pygame'
-        print("✓ pygame detectado y funcionando")
-    except Exception as e:
-        PYGAME_ERROR = str(e)
-        print(f"✗ pygame no disponible: {e}")
-        AUDIO_PLAYER = None
-
-# Si ninguno funciona, mostrar advertencia
-if AUDIO_PLAYER is None:
-    print("=" * 60)
-    print("⚠ ADVERTENCIA: No hay reproductor de audio disponible")
-    print("=" * 60)
-    print("\nPara habilitar la reproducción de música, instala:")
-    print("1. VLC Media Player: https://www.videolan.org/vlc/")
-    print("   O")
-    print("2. pygame: pip install pygame")
-    print("=" * 60)
-
-import tempfile
-import os as os_module
+import tkinter as tk
+from tkinter import Canvas, messagebox
+import random
+import time
 import threading
+from RooksClass import RookArena, RookRoca, RookAgua, RookFuego, GestorRooks
+from AvatarClass import GestorAvatares
+from MoneySystem import SistemaPuntos, SistemaMonedas
 
-def get_popularidad():
-    """
-    Lee la popularidad de la canción actual desde el archivo temporal y también la imprime.
-    Retorna float (0–100) o None si aún no hay dato.
-    """
-    try:
-        with open(POPULARIDAD_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        val = float(data.get("popularidad") if "popularidad" in data else data.get("popularity"))
-        print(f"★ Popularidad actual: {val:.0f}/100")
-        return val
-    except Exception:
-        print("⚠ No hay popularidad disponible todavía (reproduce una canción primero).")
-        return None
 
-def popularidad_youtube(query_or_url: str) -> float:
-    """
-    Devuelve la popularidad (0–100) y también la imprime.
-    Acepta texto de búsqueda o URL de YouTube.
-    """
-    if not YT_DLP_AVAILABLE:
-        raise ImportError("yt-dlp no está disponible. Instala con: pip install yt-dlp")
+# ═══════════════════════════════════════════════════════════════════════════
+# SISTEMA DE SONIDO PARA TORRES
+# ═══════════════════════════════════════════════════════════════════════════
 
-    # --- 1) Buscar/extraer metadatos con yt-dlp ---
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'quiet': True,
-        'no_warnings': True,
-        'default_search': 'ytsearch',
-        'noplaylist': True,
-    }
-    with YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(
-            query_or_url if query_or_url.startswith(("http://", "https://"))
-            else f"ytsearch1:{query_or_url}",
-            download=False
-        )
-        entry = info["entries"][0] if "entries" in info and info["entries"] else info
-
-    # --- 2) Calcular popularidad (misma lógica que usas en _compute_popularity) ---
-    import math
-    from datetime import datetime, timezone
-
-    views = entry.get("view_count") or 0
-    likes = entry.get("like_count") or 0
-    rating = entry.get("average_rating")  # 1–5 o None
-    upload_date = entry.get("upload_date")  # 'YYYYMMDD' o None
-
-    # Edad en días
-    try:
-        if upload_date:
-            dt = datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=timezone.utc)
-            age_days = max(1, (datetime.now(timezone.utc) - dt).days)
-        else:
-            age_days = 365
-    except Exception:
-        age_days = 365
-
-    vpd = views / max(1, age_days)  # vistas por día
-
-    # Normalizaciones log
-    views_score = min(1.0, math.log10(views + 1) / 7.0)
-    likes_score = min(1.0, math.log10(likes + 1) / 5.0)
-    vel_score   = min(1.0, math.log10(vpd   + 1) / 5.0)
-    if rating is None:
-        rating = 4.0
-    rating_score = max(0.0, min(1.0, (rating - 1.0) / 4.0))
-
-    score = (
-        0.45 * views_score +
-        0.25 * likes_score +
-        0.20 * vel_score +
-        0.10 * rating_score
-    ) * 100.0
-
-    # Etiqueta cualitativa
-    if score >= 85:   label = "viral"
-    elif score >= 60: label = "alta"
-    elif score >= 30: label = "moderada"
-    else:             label = "baja"
-
-    def _abbr(n):
-        try:
-            n = float(n)
-        except:
-            return "0"
-        if n >= 1_000_000_000: return f"{n/1_000_000_000:.1f}B"
-        if n >= 1_000_000:     return f"{n/1_000_000:.1f}M"
-        if n >= 1_000:         return f"{n/1_000:.1f}k"
-        return f"{int(n)}"
-
-    # --- 3) Imprimir y retornar ---
-    print(
-        f"★ Popularidad estimada: {score:.0f}/100 — {label} "
-        f"(vistas≈{_abbr(views)}, likes≈{_abbr(likes)}, v/día≈{_abbr(vpd)}, rating≈{rating:.1f})"
-    )
-    return float(score)
-
-class ColorSelectorApp:
-    """
-    Aplicación principal de personalización del juego.
-    Permite seleccionar color favorito, tema y música, con preview en tiempo real.
-    """
+class SoundManager:
+    """Gestor de sonidos para las torres"""
     
-    def __init__(self, root):
+    def __init__(self):
+        """Inicializa el gestor de sonidos"""
+        self.sonidos = {}
+        self.pygame_disponible = False
+        self.cargar_sonidos()
+    
+    def cargar_sonidos(self):
+        """Carga los archivos de sonido de las torres"""
+        try:
+            import pygame
+            pygame.mixer.init()
+            self.pygame_disponible = True
+            print("✅ Sistema de sonido inicializado con Pygame")
+        except ImportError:
+            print("⚠️ Pygame no disponible. Los sonidos no funcionarán.")
+            print("   Instala: pip install pygame")
+            return
+        
+        # Mapeo de tipos de torre a archivos de sonido
+        mapeo_sonidos = {
+            'Arena': 'arena_sound.mp3',
+            'Roca': 'piedra_sound.mp3',
+            'Agua': 'agua_sound.mp3',
+            'Fuego': 'fuego_sound.mp3'
+        }
+        
+        extensiones = ['.mp3', '.wav', '.ogg']
+        
+        for tipo, archivo_base in mapeo_sonidos.items():
+            sonido_cargado = False
+            
+            # Intentar con el nombre exacto primero
+            if os.path.exists(archivo_base):
+                if self._cargar_sonido_archivo(tipo, archivo_base):
+                    sonido_cargado = True
+            
+            # Si no se cargó, intentar con variaciones
+            if not sonido_cargado:
+                nombre_sin_ext = archivo_base.rsplit('.', 1)[0]
+                for ext in extensiones:
+                    path = f"{nombre_sin_ext}{ext}"
+                    if os.path.exists(path):
+                        if self._cargar_sonido_archivo(tipo, path):
+                            sonido_cargado = True
+                            break
+            
+            if not sonido_cargado:
+                print(f"⚠️ No se encontró sonido para torre: {tipo} ({archivo_base})")
+    
+    def _cargar_sonido_archivo(self, tipo, path):
+        """Carga un archivo de sonido específico"""
+        try:
+            if self.pygame_disponible:
+                import pygame
+                sonido = pygame.mixer.Sound(path)
+                self.sonidos[tipo] = sonido
+                print(f"✅ Sonido cargado: {path} -> {tipo}")
+                return True
+        except Exception as e:
+            print(f"⚠️ Error cargando {path}: {e}")
+            return False
+        
+        return False
+    
+    def reproducir(self, tipo_torre):
         """
-        Inicializa la ventana de personalización.
+        Reproduce el sonido de impacto de una torre
         
         Args:
-            root: Ventana principal de Tkinter
+            tipo_torre: Tipo de torre ('Arena', 'Roca', 'Agua', 'Fuego')
         """
-        self.popularity_reported = False
-        self.current_popularity = None  # Popularidad 0–100 de la canción actual
-
-
-        # Configuración de la ventana principal
-        self.root = root
-        self.root.title("Personalización - Sistema de Aldeas")
-        
-        # ==================== SISTEMA DE CENTRADO DE VENTANA ====================
-        # Obtener el tamaño de la pantalla
-        screen_width = root.winfo_screenwidth()
-        screen_height = root.winfo_screenheight()
-        
-        # Definir tamaño de la ventana
-        window_width = 1150
-        window_height = 800
-        
-        # Calcular la posición para centrar la ventana
-        position_x = int((screen_width - window_width) / 2)
-        position_y = int((screen_height - window_height) / 2)
-        
-        # Establecer geometría y posición centrada
-        self.root.geometry(f"{window_width}x{window_height}+{position_x}+{position_y}")
-        self.root.resizable(False, False)
-        
-        # Color de fondo fijo para toda la aplicación
-        self.color_fondo_fijo = '#8a1c32'
-        self.root.configure(bg=self.color_fondo_fijo)
-        
-        # Contenedor principal
-        main_container = tk.Frame(root, bg=self.color_fondo_fijo)
-        main_container.pack(fill='both', expand=True)
-        
-        # Crear paneles izquierdo (controles) y derecho (preview)
-        self._crear_panel_izquierdo(main_container)
-        self._crear_panel_preview(main_container)
-        
-        # Variables para control de música
-        self.music_thread = None
-        self.current_song_file = None
-        self.is_playing = False
-        self.is_paused = False
-        self.vlc_player = None
-        self.vlc_instance = None
-        
-        # Inicializar reproductor según disponibilidad
-        if AUDIO_PLAYER == 'pygame':
-            from pygame import mixer
-            mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
-            print("✓ pygame inicializado")
-        elif AUDIO_PLAYER == 'vlc':
-            import vlc
-            self.vlc_instance = vlc.Instance('--no-video', '--quiet')
-            print("✓ VLC inicializado")
-        
-        # Aplicar tema inicial
-        self.cambiar_tema()
-        
-        # Actualizar paleta del preview si está disponible
-        if GAME_AVAILABLE and self.game_preview:
-            self.update_game_palette()
-    
-    def _print_popularity_once(self, info: dict):
-        if self.popularity_reported:
+        if not self.pygame_disponible or tipo_torre not in self.sonidos:
             return
-        score, label, details = self._compute_popularity(info)
-        self.current_popularity = float(score)
-        print(
-            f"★ Popularidad estimada: {score:.0f}/100 — {label} "
-            f"(vistas≈{details['views_str']}, likes≈{details['likes_str']}, "
-            f"v/día≈{details['vpd_str']}, rating≈{details['rating_str']})"
-        )
-        self._store_popularity(self.current_popularity)  # ← guarda para otros procesos
-        self.popularity_reported = True
-
-
-    def get_popularidad(self):
-        """
-        Retorna la popularidad (0–100) de la canción actualmente cargada,
-        o None si todavía no hay una calculada.
-        """
-        return self.current_popularity
-
-    
-    def _compute_popularity(self, info: dict):
-        """Devuelve (score_0_100, etiqueta, detalles_dict) usando campos de yt-dlp."""
-        import math
-        from datetime import datetime, timezone
-
-        views = info.get("view_count") or 0
-        likes = info.get("like_count") or 0
-        rating = info.get("average_rating")  # suele ser 1–5, puede ser None
-        upload_date = info.get("upload_date")  # 'YYYYMMDD' o None
-
-        # Edad del video en días
+        
         try:
-            if upload_date:
-                dt = datetime.strptime(upload_date, "%Y%m%d").replace(tzinfo=timezone.utc)
-                age_days = max(1, (datetime.now(timezone.utc) - dt).days)
-            else:
-                age_days = 365  # suposición conservadora si no hay fecha
-        except Exception:
-            age_days = 365
+            sonido = self.sonidos[tipo_torre]
+            sonido.play()
+        except Exception as e:
+            print(f"⚠️ Error reproduciendo sonido {tipo_torre}: {e}")
+    
+    def detener_todos(self):
+        """Detiene todos los sonidos en reproducción"""
+        try:
+            if self.pygame_disponible:
+                import pygame
+                pygame.mixer.stop()
+        except Exception as e:
+            print(f"⚠️ Error deteniendo sonidos: {e}")
 
-        # Velocidad de vistas por día
-        vpd = views / max(1, age_days)
 
-        # Normalizaciones logarítmicas para evitar sesgos por órdenes de magnitud
-        # 10^7 vistas ~ score vistas ~ 1.0; 10^5 likes ~ 1.0; 10^5 v/día ~ 1.0
-        views_score = min(1.0, math.log10(views + 1) / 7.0)
-        likes_score = min(1.0, math.log10(likes + 1) / 5.0)
-        vel_score   = min(1.0, math.log10(vpd   + 1) / 5.0)
-        # Rating 1–5 a 0–1; si no hay rating, asumimos 4.0 (~0.75)
-        if rating is None:
-            rating = 4.0
-        rating_score = max(0.0, min(1.0, (rating - 1.0) / 4.0))
+# Instancia global del gestor de sonidos
+_sound_manager = None
 
-        # Ponderación: vistas (45%), likes (25%), velocidad (20%), rating (10%)
-        score = (
-            0.45 * views_score +
-            0.25 * likes_score +
-            0.20 * vel_score +
-            0.10 * rating_score
-        ) * 100.0
+def get_sound_manager():
+    """Obtiene la instancia global del gestor de sonidos"""
+    global _sound_manager
+    if _sound_manager is None:
+        _sound_manager = SoundManager()
+    return _sound_manager
 
-        # Etiqueta cualitativa
-        if score >= 85:
-            label = "viral"
-        elif score >= 60:
-            label = "alta"
-        elif score >= 30:
-            label = "moderada"
-        else:
-            label = "baja"
 
-        # Strings bonitos para el print
-        def _abbr(n):
-            try:
-                n = float(n)
-            except:
-                return "0"
-            if n >= 1_000_000_000:
-                return f"{n/1_000_000_000:.1f}B"
-            if n >= 1_000_000:
-                return f"{n/1_000_000:.1f}M"
-            if n >= 1_000:
-                return f"{n/1_000:.1f}k"
-            return f"{int(n)}"
+# ═══════════════════════════════════════════════════════════════════════════
+# CLASES DEL JUEGO
+# ═══════════════════════════════════════════════════════════════════════════
 
-        details = {
-            "views_str": _abbr(views),
-            "likes_str": _abbr(likes),
-            "vpd_str": _abbr(vpd),
-            "rating_str": f"{rating:.1f}" if rating else "N/D",
+
+class ColorPalette:
+    """
+    Recibe una paleta de colores completa generada externamente.
+    Este modulo NO genera colores, solo los organiza y distribuye.
+    """
+    def __init__(self, palette_dict=None):
+        if palette_dict is None:
+            palette_dict = self.get_default_palette()
+        
+        self.load_palette(palette_dict)
+    
+    def load_palette(self, palette_dict):
+        """Carga una paleta de colores desde un diccionario"""
+        # Zona segura
+        self.safe_zone_bg = self.rgb_to_hex(palette_dict.get('safe_zone_bg', (240, 248, 255)))
+        self.safe_houses = self.rgb_to_hex(palette_dict.get('safe_houses', (139, 69, 19)))
+        self.safe_houses_roof = self.rgb_to_hex(palette_dict.get('safe_houses_roof', (178, 34, 34)))
+        self.safe_houses_door = self.rgb_to_hex(palette_dict.get('safe_houses_door', (90, 45, 12)))
+        self.safe_houses_window = self.rgb_to_hex(palette_dict.get('safe_houses_window', (255, 255, 200)))
+        
+        # Zona invasora
+        self.invader_zone_bg = self.rgb_to_hex(palette_dict.get('invader_zone_bg', (30, 30, 35)))
+        self.invader_houses = self.rgb_to_hex(palette_dict.get('invader_houses', (60, 60, 60)))
+        self.invader_houses_roof = self.rgb_to_hex(palette_dict.get('invader_houses_roof', (120, 20, 20)))
+        self.invader_houses_door = self.rgb_to_hex(palette_dict.get('invader_houses_door', (40, 40, 40)))
+        self.invader_houses_window = self.rgb_to_hex(palette_dict.get('invader_houses_window', (150, 100, 100)))
+        
+        # Cuadricula
+        self.grid_bg = self.rgb_to_hex(palette_dict.get('grid_bg', (255, 255, 255)))
+        self.grid_bg_light = self.rgb_to_hex(palette_dict.get('grid_bg_light', (144, 238, 144)))
+        self.grid_bg_dark = self.rgb_to_hex(palette_dict.get('grid_bg_dark', (34, 139, 34)))
+        self.grid_lines = self.rgb_to_hex(palette_dict.get('grid_lines', (139, 69, 19)))
+        self.grid_border = self.rgb_to_hex(palette_dict.get('grid_border', (101, 67, 33)))
+        
+        # Elementos UI
+        self.user_icon_bg = self.rgb_to_hex(palette_dict.get('user_icon_bg', (255, 255, 255)))
+        self.user_icon_border = self.rgb_to_hex(palette_dict.get('user_icon_border', (139, 69, 19)))
+        self.user_icon_person = self.rgb_to_hex(palette_dict.get('user_icon_person', (139, 69, 19)))
+        
+        self.question_bg = self.rgb_to_hex(palette_dict.get('question_bg', (255, 165, 0)))
+        self.question_text = self.rgb_to_hex(palette_dict.get('question_text', (255, 255, 255)))
+        
+        # Fondo general
+        self.background = self.rgb_to_hex(palette_dict.get('background', (240, 240, 245)))
+    
+    def rgb_to_hex(self, rgb):
+        """Convierte tupla RGB a hexadecimal"""
+        return '#%02x%02x%02x' % rgb
+    
+    def get_default_palette(self):
+        """Paleta por defecto"""
+        return {
+            'safe_zone_bg': (240, 248, 255),
+            'safe_houses': (139, 69, 19),
+            'safe_houses_roof': (178, 34, 34),
+            'safe_houses_door': (90, 45, 12),
+            'safe_houses_window': (255, 255, 200),
+            'invader_zone_bg': (30, 30, 35),
+            'invader_houses': (60, 60, 60),
+            'invader_houses_roof': (120, 20, 20),
+            'invader_houses_door': (40, 40, 40),
+            'invader_houses_window': (150, 100, 100),
+            'grid_bg': (255, 255, 255),
+            'grid_bg_light': (144, 238, 144),
+            'grid_bg_dark': (34, 139, 34),
+            'grid_lines': (139, 69, 19),
+            'grid_border': (101, 67, 33),
+            'user_icon_bg': (255, 255, 255),
+            'user_icon_border': (139, 69, 19),
+            'user_icon_person': (139, 69, 19),
+            'question_bg': (255, 165, 0),
+            'question_text': (255, 255, 255),
+            'background': (240, 240, 245)
         }
-        return score, label, details
+    
+    def update_palette(self, new_palette_dict):
+        """Actualiza la paleta con nuevos colores"""
+        self.load_palette(new_palette_dict)
 
-    def _crear_panel_izquierdo(self, parent):
-        """Crea el panel izquierdo con todos los controles de personalización."""
-        left_panel = tk.Frame(parent, bg=self.color_fondo_fijo, width=600)
-        left_panel.pack(side='left', fill='both', expand=False, padx=10, pady=10)
-        left_panel.pack_propagate(False)
-        
-        left_canvas = tk.Canvas(left_panel, bg=self.color_fondo_fijo, highlightthickness=0)
-        scrollbar = tk.Scrollbar(left_panel, orient="vertical", command=left_canvas.yview)
-        self.scrollable_frame = tk.Frame(left_canvas, bg=self.color_fondo_fijo)
-        
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: left_canvas.configure(scrollregion=left_canvas.bbox("all"))
-        )
-        
-        left_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        left_canvas.configure(yscrollcommand=scrollbar.set)
-        
-        left_canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        
-        self.main_canvas = left_canvas
-        
-        self.color_favorito = tk.StringVar(value="#a4244d")
-        self.tema_var = tk.StringVar(value="claro")
-        self.cancion_var = tk.StringVar()
-        
-        self.tema_var.trace('w', self.cambiar_tema)
-        
-        self._crear_titulo()
-        self._crear_seccion_color()
-        self._crear_seccion_tema()
-        self._crear_seccion_musica()
-        
-        self.espacio_label = tk.Label(self.scrollable_frame, text="", bg=self.color_fondo_fijo)
-        self.espacio_label.pack(pady=10)
+
+class SpriteManager:
+    """Gestor de sprites para los avatares"""
+    def __init__(self):
+        self.sprites = {}
+        self.photo_images = {}
+        self.sprite_size = 55
+        self.projectile_size = 40  # Más grande para mejor visibilidad
+        self.weapon_size = 60  # Tamaño de una casilla completa
+        self.collision_size = 40
+        self.cargar_sprites()
+        self.cargar_proyectiles()
+        self.cargar_armas()
+        self.cargar_colisiones()
+        self.cargar_torres()  # ✅ NUEVO: Cargar sprites de torres
     
-    def _crear_titulo(self):
-        """Crea el título principal de la ventana"""
-        self.title_label = tk.Label(
-            self.scrollable_frame, 
-            text="PERSONALIZACIÓN", 
-            font=("Arial", 28, "bold"), 
-            bg=self.color_fondo_fijo, 
-            fg='#ffffff'
-        )
-        self.title_label.pack(pady=20)
-    
-    def _crear_seccion_color(self):
-        """Crea la sección de selección de color favorito."""
-        self.color_frame = tk.LabelFrame(
-            self.scrollable_frame, 
-            text="Seleccione su color favorito",
-            font=("Arial", 13, "bold"), 
-            bg='#ffffff', 
-            fg='#2c3e50', 
-            padx=25, 
-            pady=20, 
-            relief="groove", 
-            bd=3
-        )
-        self.color_frame.pack(pady=10, padx=30, fill='x')
+    def cargar_sprites(self):
+        """Carga todas las imagenes de sprites disponibles"""
+        tipos = ['leñador', 'flechador', 'escudero', 'canibal']
+        extensiones = ['.png', '.jpg', '.jpeg', '.gif']
         
-        self.canvas_color = tk.Canvas(
-            self.color_frame, 
-            width=220, 
-            height=220, 
-            bg='#ffffff', 
+        for tipo in tipos:
+            self.sprites[tipo] = []
+            for frame in [0, 1]:
+                imagen_cargada = False
+                for ext in extensiones:
+                    path = f"{tipo}{frame}{ext}"
+                    if os.path.exists(path):
+                        try:
+                            img = Image.open(path).convert("RGBA")
+                            img = img.resize((self.sprite_size, self.sprite_size), Image.LANCZOS)
+                            self.sprites[tipo].append(img)
+                            imagen_cargada = True
+                            print(f"✅ Sprite cargado: {path}")
+                            break
+                        except Exception as e:
+                            print(f"⚠️ Error cargando {path}: {e}")
+                
+                if not imagen_cargada:
+                    print(f"⚠️ No se encontro sprite: {tipo}{frame}")
+                    self.sprites[tipo].append(None)
+    
+    def cargar_proyectiles(self):
+        """Carga imagenes de proyectiles"""
+        self.proyectiles = {}
+        extensiones = ['.png', '.jpg', '.jpeg', '.gif']
+        
+        for ext in extensiones:
+            path = f"flecha{ext}"
+            if os.path.exists(path):
+                try:
+                    img = Image.open(path).convert("RGBA")
+                    img = img.resize((self.projectile_size, self.projectile_size), Image.LANCZOS)
+                    self.proyectiles['flecha'] = img
+                    print(f"✅ Proyectil cargado: {path}")
+                    break
+                except Exception as e:
+                    print(f"⚠️ Error cargando {path}: {e}")
+        
+        for ext in extensiones:
+            path = f"escudo{ext}"
+            if os.path.exists(path):
+                try:
+                    img = Image.open(path).convert("RGBA")
+                    img = img.resize((self.projectile_size, self.projectile_size), Image.LANCZOS)
+                    self.proyectiles['escudo'] = img
+                    print(f"✅ Proyectil cargado: {path}")
+                    break
+                except Exception as e:
+                    print(f"⚠️ Error cargando {path}: {e}")
+    
+    def cargar_armas(self):
+        """Carga imagenes de armas para ataques melee"""
+        self.armas = {}
+        extensiones = ['.png', '.jpg', '.jpeg', '.gif']
+        
+        self.armas['hacha'] = []
+        for frame in [0, 1]:
+            imagen_cargada = False
+            for ext in extensiones:
+                path = f"hacha{frame}{ext}"
+                if os.path.exists(path):
+                    try:
+                        img = Image.open(path).convert("RGBA")
+                        img = img.resize((self.weapon_size, self.weapon_size), Image.LANCZOS)
+                        self.armas['hacha'].append(img)
+                        imagen_cargada = True
+                        print(f"✅ Arma cargada: {path}")
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Error cargando {path}: {e}")
+            if not imagen_cargada:
+                self.armas['hacha'].append(None)
+        
+        self.armas['palo'] = []
+        for frame in [0, 1]:
+            imagen_cargada = False
+            for ext in extensiones:
+                path = f"palo{frame}{ext}"
+                if os.path.exists(path):
+                    try:
+                        img = Image.open(path).convert("RGBA")
+                        img = img.resize((self.weapon_size, self.weapon_size), Image.LANCZOS)
+                        self.armas['palo'].append(img)
+                        imagen_cargada = True
+                        print(f"✅ Arma cargada: {path}")
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Error cargando {path}: {e}")
+            if not imagen_cargada:
+                self.armas['palo'].append(None)
+    
+    def cargar_colisiones(self):
+        """Carga imagenes de animacion de colision"""
+        self.colisiones = []
+        extensiones = ['.png', '.jpg', '.jpeg', '.gif']
+        
+        for frame in [0, 1]:
+            imagen_cargada = False
+            for ext in extensiones:
+                path = f"colision{frame}{ext}"
+                if os.path.exists(path):
+                    try:
+                        img = Image.open(path).convert("RGBA")
+                        img = img.resize((self.collision_size, self.collision_size), Image.LANCZOS)
+                        self.colisiones.append(img)
+                        imagen_cargada = True
+                        print(f"✅ Colision cargada: {path}")
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Error cargando {path}: {e}")
+            if not imagen_cargada:
+                self.colisiones.append(None)
+    
+    def cargar_torres(self):
+        """✅ NUEVO: Carga imagenes de torres (Rooks)"""
+        self.torres = {}
+        extensiones = ['.png', '.jpg', '.jpeg', '.gif']
+        
+        # Mapeo de archivos a tipos de torre
+        mapeo_torres = {
+            'Arena': 'R01',    # Torre de Arena -> R01.png
+            'Roca': 'R02',     # Torre de Roca -> R02.png
+            'Fuego': 'R03',    # Torre de Fuego -> R03.png
+            'Agua': 'R04'      # Torre de Agua -> R04.png
+        }
+        
+        for tipo, archivo in mapeo_torres.items():
+            imagen_cargada = False
+            for ext in extensiones:
+                path = f"{archivo}{ext}"
+                if os.path.exists(path):
+                    try:
+                        img = Image.open(path).convert("RGBA")
+                        # Ajustar al tamaño de la celda (60x60)
+                        img = img.resize((60, 60), Image.LANCZOS)
+                        self.torres[tipo] = img
+                        print(f"✅ Torre cargada: {path} -> {tipo}")
+                        imagen_cargada = True
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Error cargando {path}: {e}")
+            
+            if not imagen_cargada:
+                print(f"⚠️ No se encontró sprite para torre: {tipo}")
+                self.torres[tipo] = None
+    
+    def get_proyectil_sprite(self, tipo_avatar, canvas):
+        """Obtiene el sprite del proyectil segun el tipo de avatar"""
+        tipo_normalizado = tipo_avatar.lower().strip()
+        
+        if 'flechador' in tipo_normalizado:
+            sprite_key = 'flecha'
+        elif 'escudero' in tipo_normalizado:
+            sprite_key = 'escudo'
+        else:
+            return None
+        
+        if sprite_key not in self.proyectiles:
+            return None
+        
+        pil_img = self.proyectiles[sprite_key]
+        cache_key = (sprite_key, 'proyectil', id(canvas))
+        if cache_key not in self.photo_images:
+            self.photo_images[cache_key] = ImageTk.PhotoImage(pil_img, master=canvas)
+        
+        return self.photo_images[cache_key]
+    
+    def get_arma_sprite(self, tipo_avatar, frame_index, canvas):
+        """Obtiene el sprite del arma para ataques melee"""
+        tipo_normalizado = tipo_avatar.lower().strip()
+        
+        if 'leñador' in tipo_normalizado:
+            arma_key = 'hacha'
+        elif 'canibal' in tipo_normalizado:
+            arma_key = 'palo'
+        else:
+            return None
+        
+        if arma_key not in self.armas or not self.armas[arma_key]:
+            return None
+        
+        if frame_index >= len(self.armas[arma_key]):
+            return None
+        
+        pil_img = self.armas[arma_key][frame_index]
+        if pil_img is None:
+            return None
+        
+        cache_key = (arma_key, frame_index, id(canvas))
+        if cache_key not in self.photo_images:
+            self.photo_images[cache_key] = ImageTk.PhotoImage(pil_img, master=canvas)
+        
+        return self.photo_images[cache_key]
+    
+    def get_colision_sprite(self, frame_index, canvas):
+        """Obtiene el sprite de la animacion de colision"""
+        if not self.colisiones or frame_index >= len(self.colisiones):
+            return None
+        
+        pil_img = self.colisiones[frame_index]
+        if pil_img is None:
+            return None
+        
+        cache_key = ('colision', frame_index, id(canvas))
+        if cache_key not in self.photo_images:
+            self.photo_images[cache_key] = ImageTk.PhotoImage(pil_img, master=canvas)
+        
+        return self.photo_images[cache_key]
+    
+    def get_sprite(self, tipo, frame_index, canvas):
+        """Obtiene el PhotoImage del sprite para un canvas especifico"""
+        tipo_normalizado = tipo.lower().strip()
+        
+        if 'leñador' in tipo_normalizado or '🪓' in tipo:
+            tipo_key = 'leñador'
+        elif 'flechador' in tipo_normalizado or '🏹' in tipo:
+            tipo_key = 'flechador'
+        elif 'escudero' in tipo_normalizado or '🛡' in tipo:
+            tipo_key = 'escudero'
+        elif 'canibal' in tipo_normalizado or '🗡' in tipo or '💹' in tipo:
+            tipo_key = 'canibal'
+        else:
+            print(f"⚠️ Tipo de avatar no reconocido: '{tipo}'")
+            return None
+        
+        if tipo_key not in self.sprites:
+            return None
+        
+        frames = self.sprites[tipo_key]
+        if not frames or frame_index >= len(frames):
+            return None
+        
+        pil_img = frames[frame_index]
+        if pil_img is None:
+            return None
+        
+        cache_key = (tipo_key, frame_index, id(canvas))
+        if cache_key not in self.photo_images:
+            self.photo_images[cache_key] = ImageTk.PhotoImage(pil_img, master=canvas)
+        
+        return self.photo_images[cache_key]
+
+
+class House:
+    def __init__(self, x, y, palette, is_invader=False):
+        self.x = x
+        self.y = y
+        self.palette = palette
+        self.is_invader = is_invader
+        self.size = 35
+    
+    def get_colors(self):
+        """Obtiene los colores segun el tipo de casa"""
+        if self.is_invader:
+            return {
+                'body': self.palette.invader_houses,
+                'roof': self.palette.invader_houses_roof,
+                'door': self.palette.invader_houses_door,
+                'window': self.palette.invader_houses_window
+            }
+        else:
+            return {
+                'body': self.palette.safe_houses,
+                'roof': self.palette.safe_houses_roof,
+                'door': self.palette.safe_houses_door,
+                'window': self.palette.safe_houses_window
+            }
+    
+    def draw(self, canvas):
+        colors = self.get_colors()
+        
+        canvas.create_rectangle(
+            self.x, self.y + 12,
+            self.x + self.size, self.y + self.size,
+            fill=colors['body'], outline=colors['body']
+        )
+        
+        roof_points = [
+            self.x, self.y + 12,
+            self.x + self.size // 2, self.y,
+            self.x + self.size, self.y + 12
+        ]
+        canvas.create_polygon(roof_points, fill=colors['roof'], outline=colors['roof'])
+        
+        canvas.create_rectangle(
+            self.x + 12, self.y + 22,
+            self.x + 23, self.y + 40,
+            fill=colors['door'], outline=colors['door']
+        )
+        
+        canvas.create_rectangle(
+            self.x + 5, self.y + 16,
+            self.x + 14, self.y + 25,
+            fill=colors['window'], outline=colors['window']
+        )
+
+
+class UserIcon:
+    def __init__(self, x, y, palette, size=45):
+        self.x = x
+        self.y = y
+        self.palette = palette
+        self.size = size
+        self._pil_circular = None
+        self._photo_tk = None
+
+    def _circularize(self, pil_img, size):
+        pil_img = pil_img.convert("RGBA").resize((size, size), Image.LANCZOS)
+        from PIL import ImageDraw, Image as PILImage
+        mask = PILImage.new("L", (size, size), 0)
+        d = ImageDraw.Draw(mask)
+        d.ellipse((0, 0, size, size), fill=255)
+        pil_img.putalpha(mask)
+        return pil_img
+
+    def load_from_username(self, username):
+        """Carga foto_perfil_b64 del usuario (si existe) y la deja lista en PIL."""
+        self._pil_circular = None
+        self._photo_tk = None
+        if not username:
+            return
+        try:
+            usuarios = cargar_usuarios()
+            datos = usuarios.get(username, {}) if isinstance(usuarios, dict) else {}
+            foto_b64 = datos.get("foto_perfil_b64", "")
+            if foto_b64:
+                img_data = base64.b64decode(foto_b64)
+                from PIL import Image as PILImage
+                pil_img = PILImage.open(io.BytesIO(img_data))
+                self._pil_circular = self._circularize(pil_img, self.size)
+        except Exception:
+            self._pil_circular = None
+
+    def draw(self, canvas):
+        radius = self.size // 2
+        canvas.create_oval(
+            self.x - radius, self.y - radius,
+            self.x + radius, self.y + radius,
+            fill=self.palette.user_icon_bg,
+            outline=self.palette.user_icon_border,
+            width=3
+        )
+
+        if self._pil_circular is not None:
+            self._photo_tk = ImageTk.PhotoImage(self._pil_circular, master=canvas)
+            canvas.create_image(self.x, self.y, image=self._photo_tk)
+        else:
+            canvas.create_oval(
+                self.x - 8, self.y - 13,
+                self.x + 8, self.y + 3,
+                fill=self.palette.user_icon_person,
+                outline=self.palette.user_icon_person
+            )
+            canvas.create_arc(
+                self.x - 12, self.y,
+                self.x + 12, self.y + 20,
+                start=0, extent=180,
+                outline=self.palette.user_icon_person,
+                width=4, style='arc'
+            )
+
+
+class QuestionButton:
+    def __init__(self, x, y, palette, presupuesto=0):
+        self.x = x
+        self.y = y
+        self.palette = palette
+        self.size = 45
+        self.presupuesto = presupuesto
+    
+    def update_presupuesto(self, presupuesto):
+        """Actualiza el presupuesto mostrado"""
+        self.presupuesto = presupuesto
+    
+    def draw(self, canvas):
+        half_size = self.size // 2
+        
+        canvas.create_rectangle(
+            self.x - half_size, self.y - half_size,
+            self.x + half_size, self.y + half_size,
+            fill=self.palette.question_bg,
+            outline=self.palette.question_bg
+        )
+        
+        canvas.create_text(
+            self.x, self.y,
+            text=f"${self.presupuesto}",
+            font=("Arial", 12, "bold"),
+            fill=self.palette.question_text
+        )
+
+
+class TopRightButton:
+    """Boton START"""
+    def __init__(self, x, y, palette):
+        self.x = x
+        self.y = y
+        self.palette = palette
+        self.width = 80
+        self.height = 40
+        self.visible = True
+    
+    def draw(self, canvas):
+        if not self.visible:
+            return
+        
+        half_w = self.width // 2
+        half_h = self.height // 2
+        
+        canvas.create_rectangle(
+            self.x - half_w, self.y - half_h,
+            self.x + half_w, self.y + half_h,
+            fill='#00cc00',
+            outline='#009900',
+            width=3
+        )
+        
+        canvas.create_text(
+            self.x, self.y,
+            text="START",
+            font=("Arial", 14, "bold"),
+            fill="white"
+        )
+    
+    def hide(self):
+        self.visible = False
+
+
+class ElementButton:
+    """Boton para seleccionar torres"""
+    def __init__(self, x, y, element_type, palette, game):
+        self.x = x
+        self.y = y
+        self.element_type = element_type
+        self.palette = palette
+        self.game = game
+        self.size = 50
+        
+        self.config = {
+            'sand': {'color': '#DEB887', 'icon': '⛰️', 'name': 'Arena', 'price': 100, 'class': RookArena},
+            'rock': {'color': '#696969', 'icon': '🪨', 'name': 'Roca', 'price': 150, 'class': RookRoca},
+            'water': {'color': '#4682B4', 'icon': '💧', 'name': 'Agua', 'price': 120, 'class': RookAgua},
+            'fire': {'color': '#FF4500', 'icon': '🔥', 'name': 'Fuego', 'price': 200, 'class': RookFuego}
+        }
+    
+    def draw(self, canvas):
+        cfg = self.config[self.element_type]
+        half = self.size // 2
+        
+        canvas.create_rectangle(
+            self.x - half, self.y - half,
+            self.x + half, self.y + half,
+            fill=cfg['color'],
+            outline='#333333',
+            width=2
+        )
+        
+        canvas.create_text(
+            self.x, self.y - 5,
+            text=cfg['icon'],
+            font=("Arial", 20)
+        )
+        
+        canvas.create_text(
+            self.x, self.y + 15,
+            text=f"${cfg['price']}",
+            font=("Arial", 9, "bold"),
+            fill="white"
+        )
+    
+    def is_clicked(self, x, y):
+        half = self.size // 2
+        return (self.x - half <= x <= self.x + half and 
+                self.y - half <= y <= self.y + half)
+    
+    def on_click(self):
+        cfg = self.config[self.element_type]
+        
+        if self.game.presupuesto >= cfg['price']:
+            print(f"💰 Seleccionaste Torre de {cfg['name']} (${cfg['price']})")
+            self.game.esperando_colocacion = self.element_type
+            self.game.torre_a_colocar = cfg
+        else:
+            messagebox.showwarning("Sin presupuesto", 
+                f"Necesitas ${cfg['price']} para Torre de {cfg['name']}\n" +
+                f"Tu presupuesto: ${self.game.presupuesto}")
+
+
+class Grid:
+    """Cuadricula del juego"""
+    def __init__(self, x, y, rows, cols, cell_size, palette, sprite_manager):
+        self.x = x
+        self.y = y
+        self.rows = rows
+        self.cols = cols
+        self.cell_size = cell_size
+        self.palette = palette
+        self.sprite_manager = sprite_manager
+        self.width = cols * cell_size
+        self.height = rows * cell_size
+        self.torres_grid = {}
+        self.animation_frame = 0
+        self.animation_speed = 0.3
+        self.last_animation_time = time.time()
+        
+        # Sistema de animaciones de colision
+        self.colisiones_activas = []
+    
+    def agregar_colision(self, x, y):
+        """Agrega una nueva animacion de colision"""
+        self.colisiones_activas.append({
+            'x': x,
+            'y': y,
+            'frame': 0,
+            'tiempo_inicio': time.time()
+        })
+    
+    def actualizar_colisiones(self):
+        """Actualiza y limpia las animaciones de colision"""
+        tiempo_actual = time.time()
+        colisiones_a_eliminar = []
+        
+        for i, colision in enumerate(self.colisiones_activas):
+            tiempo_transcurrido = tiempo_actual - colision['tiempo_inicio']
+            
+            if tiempo_transcurrido < 0.1:
+                colision['frame'] = 0
+            elif tiempo_transcurrido < 0.2:
+                colision['frame'] = 1
+            else:
+                colisiones_a_eliminar.append(i)
+        
+        for i in reversed(colisiones_a_eliminar):
+            self.colisiones_activas.pop(i)
+    
+    def draw_colisiones(self, canvas):
+        """Dibuja las animaciones de colision activas"""
+        for colision in self.colisiones_activas:
+            sprite = self.sprite_manager.get_colision_sprite(colision['frame'], canvas)
+            if sprite:
+                canvas.create_image(colision['x'], colision['y'], image=sprite)
+    
+    def draw(self, canvas):
+        canvas.create_rectangle(
+            self.x - 4, self.y - 4,
+            self.x + self.width + 4, self.y + self.height + 4,
+            fill=self.palette.grid_border,
+            outline=self.palette.grid_border
+        )
+        
+        for row in range(self.rows):
+            for col in range(self.cols):
+                x1 = self.x + col * self.cell_size
+                y1 = self.y + row * self.cell_size
+                x2 = x1 + self.cell_size
+                y2 = y1 + self.cell_size
+                
+                color = self.palette.grid_bg_light if (row + col) % 2 == 0 else self.palette.grid_bg_dark
+                
+                canvas.create_rectangle(
+                    x1, y1, x2, y2,
+                    fill=color,
+                    outline=self.palette.grid_lines
+                )
+                
+                self.draw_grass_texture(canvas, x1, y1, x2, y2)
+        
+        for col in range(self.cols + 1):
+            x_pos = self.x + col * self.cell_size
+            canvas.create_line(x_pos, self.y, x_pos, self.y + self.height,
+                             fill=self.palette.grid_lines, width=2)
+        
+        for row in range(self.rows + 1):
+            y_pos = self.y + row * self.cell_size
+            canvas.create_line(self.x, y_pos, self.x + self.width, y_pos,
+                             fill=self.palette.grid_lines, width=2)
+        
+        for (row, col), torre in self.torres_grid.items():
+            self.draw_torre(canvas, torre, row, col)
+    
+    def draw_grass_texture(self, canvas, x1, y1, x2, y2):
+        random.seed(int(x1 * y1))
+        for _ in range(3):
+            x_rand = random.randint(int(x1) + 5, int(x2) - 5)
+            y_rand = random.randint(int(y1) + 5, int(y2) - 5)
+            length = random.randint(3, 8)
+            canvas.create_line(x_rand, y_rand, x_rand, y_rand + length,
+                             fill=self.palette.grid_lines, width=1)
+        random.seed()
+    
+    def draw_torre(self, canvas, torre, row, col):
+        """✅ MODIFICADO: Dibuja una torre usando su sprite correspondiente"""
+        x = self.x + col * self.cell_size + self.cell_size // 2
+        y = self.y + row * self.cell_size + self.cell_size // 2
+        
+        # Obtener el sprite de la torre según su tipo
+        sprite_img = None
+        if hasattr(self.sprite_manager, 'torres') and torre.tipo in self.sprite_manager.torres:
+            sprite_img = self.sprite_manager.torres[torre.tipo]
+        
+        if sprite_img:
+            # Dibujar el sprite de la torre
+            photo = ImageTk.PhotoImage(sprite_img, master=canvas)
+            # Guardar referencia para evitar que se borre
+            if not hasattr(self.sprite_manager, 'photo_images_torres'):
+                self.sprite_manager.photo_images_torres = {}
+            self.sprite_manager.photo_images_torres[f'torre_{row}_{col}'] = photo
+            
+            canvas.create_image(x, y, image=photo, tags=f"torre_{row}_{col}")
+        else:
+            # Si no hay sprite, dibujar representación simple con ícono
+            radius = 20
+            canvas.create_oval(
+                x - radius, y - radius,
+                x + radius, y + radius,
+                fill=torre.color,
+                outline='#333333',
+                width=2
+            )
+            
+            canvas.create_text(
+                x, y - 3,
+                text=torre.icono,
+                font=("Arial", 18)
+            )
+        
+        # Barra de vida
+        vida_percent = torre.vida_actual / torre.vida_maxima
+        bar_width = 30
+        bar_height = 4
+        bar_x = x - bar_width // 2
+        bar_y = y + 25  # Un poco más abajo para no tapar el sprite
+        
+        canvas.create_rectangle(
+            bar_x, bar_y,
+            bar_x + bar_width, bar_y + bar_height,
+            fill='#cc0000',
+            outline='#333333'
+        )
+        
+        if vida_percent > 0:
+            canvas.create_rectangle(
+                bar_x, bar_y,
+                bar_x + (bar_width * vida_percent), bar_y + bar_height,
+                fill='#00cc00',
+                outline=''
+            )
+    
+    def update_animation_frame(self):
+        """Actualiza el frame de animacion basado en el tiempo"""
+        current_time = time.time()
+        if current_time - self.last_animation_time >= self.animation_speed:
+            self.animation_frame = 1 - self.animation_frame
+            self.last_animation_time = current_time
+    
+    def draw_avatares(self, canvas, avatares):
+        """Dibuja los avatares en el grid con sprites animados"""
+        self.update_animation_frame()
+        
+        for avatar in avatares:
+            col, row = avatar.posicion
+            x = self.x + col * self.cell_size + self.cell_size // 2
+            y = self.y + row * self.cell_size + self.cell_size // 2
+            
+            sprite = self.sprite_manager.get_sprite(avatar.nombre, self.animation_frame, canvas)
+            
+            if sprite:
+                canvas.create_image(x, y, image=sprite)
+            else:
+                radius = 15
+                canvas.create_oval(
+                    x - radius, y - radius,
+                    x + radius, y + radius,
+                    fill=avatar.get_color(),
+                    outline='#000000',
+                    width=2
+                )
+                
+                canvas.create_text(
+                    x, y - 3,
+                    text=avatar.get_icono(),
+                    font=("Arial", 14)
+                )
+            
+            # Dibujar arma melee si está atacando
+            if hasattr(avatar, 'esta_atacando_melee') and avatar.esta_atacando_melee:
+                frame_arma = avatar.get_frame_arma()
+                if frame_arma is not None:
+                    arma_sprite = self.sprite_manager.get_arma_sprite(avatar.nombre, frame_arma, canvas)
+                    if arma_sprite:
+                        # Posicionar el arma SOBRE el avatar atacante (no sobre el objetivo)
+                        # Usar las coordenadas del avatar actual, no de la torre adelante
+                        arma_x = x  # Mismo x que el avatar
+                        arma_y = y - 35  # Arriba del avatar (35 píxeles para el arma más grande)
+                        canvas.create_image(arma_x, arma_y, image=arma_sprite)
+            
+            vida_percent = avatar.vida / avatar.vida_maxima if avatar.vida_maxima > 0 else 0
+            bar_width = 25
+            bar_height = 3
+            bar_x = x - bar_width // 2
+            bar_y = y + 18
+            
+            canvas.create_rectangle(
+                bar_x, bar_y,
+                bar_x + bar_width, bar_y + bar_height,
+                fill='#cc0000',
+                outline=''
+            )
+            
+            if vida_percent > 0:
+                canvas.create_rectangle(
+                    bar_x, bar_y,
+                    bar_x + (bar_width * vida_percent), bar_y + bar_height,
+                    fill='#00cc00',
+                    outline=''
+                )
+    
+    def draw_proyectiles(self, canvas, proyectiles):
+        """Dibuja los proyectiles activos con sprites personalizados"""
+        for proyectil in proyectiles:
+            if proyectil.activo:
+                x, y = proyectil.posicion
+                
+                sprite = None
+                if hasattr(proyectil, 'tipo') and proyectil.tipo:
+                    sprite = self.sprite_manager.get_proyectil_sprite(proyectil.tipo, canvas)
+                
+                if sprite:
+                    canvas.create_image(x, y, image=sprite)
+                else:
+                    radius = 5
+                    canvas.create_oval(
+                        x - radius, y - radius,
+                        x + radius, y + radius,
+                        fill=proyectil.color,
+                        outline='#000000',
+                        width=1
+                    )
+    
+    def draw_monedas(self, canvas, monedas):
+        """Dibuja las monedas activas"""
+        for moneda in monedas:
+            if moneda.activa:
+                col, row = moneda.posicion
+                x = self.x + col * self.cell_size + self.cell_size // 2
+                y = self.y + row * self.cell_size + self.cell_size // 2
+                
+                size = moneda.get_size()
+                canvas.create_oval(
+                    x - size, y - size,
+                    x + size, y + size,
+                    fill=moneda.get_color(),
+                    outline='#000000',
+                    width=2,
+                    tags="moneda"
+                )
+                
+                canvas.create_text(
+                    x, y,
+                    text=moneda.get_icono(),
+                    font=("Arial", 14),
+                    tags="moneda"
+                )
+    
+    def get_cell_from_coords(self, x, y):
+        if x < self.x or x > self.x + self.width:
+            return None
+        if y < self.y or y > self.y + self.height:
+            return None
+        
+        col = int((x - self.x) / self.cell_size)
+        row = int((y - self.y) / self.cell_size)
+        
+        if 0 <= row < self.rows and 0 <= col < self.cols:
+            return (row, col)
+        return None
+    
+    def add_torre(self, torre, row, col):
+        self.torres_grid[(row, col)] = torre
+
+
+class VillageGame(tk.Frame):
+    """Clase principal del juego"""
+    def __init__(self, parent, width=600, height=750, nivel="FACIL", frecuencias=None, initial_palette=None, current_username=None):
+        super().__init__(parent, width=width, height=height)
+        self.width = width
+        self.height = height
+        self.current_username = current_username
+        self.nivel = nivel
+        self.frecuencias = frecuencias or {}
+        self.presupuesto = 350
+        self.gestor_rooks = GestorRooks()
+        
+        self.sprite_manager = SpriteManager()
+        
+        self.gestor_avatares = GestorAvatares(grid_cols=5, nivel=nivel)
+        
+        self.sistema_puntos = SistemaPuntos()
+        self.sistema_monedas = SistemaMonedas(grid_cols=5, grid_rows=9)
+        self.sistema_puntos.sistema_monedas = self.sistema_monedas
+        self.gestor_avatares.sistema_puntos = self.sistema_puntos
+        
+        self.gestor_avatares.grid_ref = None
+        
+        self.esperando_colocacion = None
+        self.torre_a_colocar = None
+        
+        self.juego_activo = False
+        self.juego_terminado = False
+        self.tiempo_inicio_juego = None
+        self.ultimo_tiempo = time.time()
+        
+        # Cache para evitar calcular popularidad/tempo en cada frame
+        self.ultimo_calculo_stats = 0
+        self.tempo_cache = 0.0
+        self.popularidad_cache = 0.0
+        
+        self.palette = ColorPalette(initial_palette)
+        
+        self.canvas = Canvas(
+            self,
+            width=self.width,
+            height=self.height,
+            bg=self.palette.background,
             highlightthickness=0
         )
-        self.canvas_color.pack(pady=10)
+        self.canvas.pack()
         
-        self.dibujar_rueda_color()
-        self.canvas_color.bind("<Button-1>", self.seleccionar_color_rueda)
+        self.grid_cols = 5
+        self.grid_rows = 9
+        self.cell_size = 60
+        grid_width = self.grid_cols * self.cell_size
+        self.grid_x = (self.width - grid_width) // 2
         
-        self.color_info_frame = tk.Frame(self.color_frame, bg='#ffffff')
-        self.color_info_frame.pack(pady=10)
+        self.grid = Grid(self.grid_x, 100, self.grid_rows, self.grid_cols, 
+                        self.cell_size, self.palette, self.sprite_manager)
         
-        self.color_info_label = tk.Label(
-            self.color_info_frame, 
-            text="Color:", 
-            font=("Arial", 10), 
-            bg='#ffffff', 
-            fg='#2c3e50'
-        )
-        self.color_info_label.pack(side='left', padx=5)
+        self.gestor_avatares.grid_ref = self.grid
         
-        self.color_display = tk.Canvas(
-            self.color_info_frame, 
-            width=60, 
-            height=25, 
-            bg=self.color_favorito.get(), 
-            highlightthickness=2, 
-            highlightbackground='#34495e'
-        )
-        self.color_display.pack(side='left', padx=5)
+        self.safe_houses = []
+        num_safe_houses = 5
+        house_spacing = grid_width // (num_safe_houses + 1)
+        house_y = 10
         
-        self.color_label = tk.Label(
-            self.color_info_frame, 
-            text=self.color_favorito.get(), 
-            font=("Arial", 10, "bold"), 
-            bg='#ffffff', 
-            fg='#2c3e50'
-        )
-        self.color_label.pack(side='left', padx=5)
-    
-    def _crear_seccion_tema(self):
-        """Crea la sección de selección de tema."""
-        self.tema_frame = tk.LabelFrame(
-            self.scrollable_frame, 
-            text="Tema", 
-            font=("Arial", 13, "bold"),
-            bg='#ffffff', 
-            fg='#2c3e50', 
-            padx=25, 
-            pady=20,
-            relief="groove", 
-            bd=3
-        )
-        self.tema_frame.pack(pady=10, padx=30, fill='x')
+        for i in range(num_safe_houses):
+            x_pos = self.grid_x + house_spacing * (i + 1) - 17
+            self.safe_houses.append(House(x_pos, house_y, self.palette, is_invader=False))
         
-        self.opciones_frame = tk.Frame(self.tema_frame, bg='#ffffff')
-        self.opciones_frame.pack()
+        self.user_icon = UserIcon(40, 30, self.palette)
+        self.user_icon.load_from_username(self.current_username)
+        self.question_btn = QuestionButton(self.width - 40, 30, self.palette, self.presupuesto)
         
-        self.rb_oscuro = tk.Radiobutton(
-            self.opciones_frame, 
-            text="Oscuro", 
-            variable=self.tema_var,
-            value="oscuro", 
-            bg='#ffffff', 
-            fg='#2c3e50', 
-            selectcolor='#bdc3c7', 
-            font=("Arial", 11),
-            activebackground='#ffffff'
-        )
-        self.rb_oscuro.grid(row=0, column=0, padx=25, pady=5)
+        grid_right_x = self.grid_x + self.grid.width
+        grid_top_y = 100
+        button_x = grid_right_x + 70
+        button_y = grid_top_y + 20
+        self.top_right_btn = TopRightButton(button_x, button_y, self.palette)
         
-        self.rb_claro = tk.Radiobutton(
-            self.opciones_frame, 
-            text="Claro", 
-            variable=self.tema_var,
-            value="claro", 
-            bg='#ffffff', 
-            fg='#2c3e50', 
-            selectcolor='#bdc3c7', 
-            font=("Arial", 11),
-            activebackground='#ffffff'
-        )
-        self.rb_claro.grid(row=0, column=1, padx=25, pady=5)
+        self.element_buttons = []
+        element_types = ['sand', 'rock', 'water', 'fire']
+        element_x = button_x
+        start_y = button_y + 110
+        spacing = 70
         
-        self.rb_medio = tk.Radiobutton(
-            self.opciones_frame, 
-            text="Término medio", 
-            variable=self.tema_var,
-            value="medio", 
-            bg='#ffffff', 
-            fg='#2c3e50', 
-            selectcolor='#bdc3c7', 
-            font=("Arial", 11),
-            activebackground='#ffffff'
-        )
-        self.rb_medio.grid(row=0, column=2, padx=25, pady=5)
-    
-    def _crear_seccion_musica(self):
-        """Crea la sección de música."""
-        self.musica_frame = tk.LabelFrame(
-            self.scrollable_frame, 
-            text="Música", 
-            font=("Arial", 13, "bold"),
-            bg='#ffffff', 
-            fg='#2c3e50', 
-            padx=25, 
-            pady=20,
-            relief="groove", 
-            bd=3
-        )
-        self.musica_frame.pack(pady=10, padx=30, fill='x')
+        for i, element in enumerate(element_types):
+            element_y = start_y + (i * spacing)
+            self.element_buttons.append(ElementButton(element_x, element_y, element, self.palette, self))
         
-        self.musica_label = tk.Label(
-            self.musica_frame, 
-            text="Nombre de la canción:",
-            font=("Arial", 11), 
-            bg='#ffffff', 
-            fg='#2c3e50'
-        )
-        self.musica_label.pack(anchor='w', pady=(5, 2))
+        self.canvas.bind("<Button-1>", self.on_canvas_click)
         
-        self.entry_cancion = tk.Entry(
-            self.musica_frame, 
-            textvariable=self.cancion_var,
-            font=("Arial", 12), 
-            width=40, 
-            relief="solid", 
-            bd=2
-        )
-        self.entry_cancion.pack(pady=(0, 15), ipady=5)
+        if self.frecuencias:
+            self.gestor_rooks.actualizar_frecuencias(self.frecuencias)
         
-        self.botones_frame = tk.Frame(self.musica_frame, bg='#ffffff')
-        self.botones_frame.pack()
-        
-        self.btn_buscar = tk.Button(
-            self.botones_frame, 
-            text="Buscar Canción",
-            bg='#9b59b6', 
-            fg='white', 
+        self.btn_salon_fama = tk.Button(
+            self, text="Salon de Fama",
+            command=self.abrir_salon_de_la_fama,
+            bg=self.palette.safe_houses_roof,
+            fg="white",
             font=("Arial", 11, "bold"),
-            padx=25, 
-            pady=10, 
-            command=self.buscar_cancion,
-            cursor="hand2", 
-            relief="raised", 
-            bd=3, 
-            width=18
+            relief="raised",
+            bd=2,
+            cursor="hand2",
+            padx=12,
+            pady=10
         )
-        self.btn_buscar.pack(pady=8)
-        
-        # Botón para pausar/reanudar música
-        self.btn_pausar = tk.Button(
-            self.botones_frame, 
-            text="Pausar Música",
-            bg='#3498db', 
-            fg='white', 
-            font=("Arial", 11, "bold"),
-            padx=25, 
-            pady=10, 
-            command=self.pausar_reanudar_musica,
-            cursor="hand2", 
-            relief="raised", 
-            bd=3, 
-            width=18,
-            state='disabled'  # Deshabilitado al inicio
-        )
-        self.btn_pausar.pack(pady=8)
-        
-        self.btn_iniciar = tk.Button(
-            self.botones_frame, 
-            text="Avanzar",
-            bg='#e74c3c', 
-            fg='white', 
-            font=("Arial", 11, "bold"),
-            padx=25, 
-            pady=10, 
-            command=self.iniciar_juego,
-            cursor="hand2", 
-            relief="raised", 
-            bd=3, 
-            width=18
-        )
-        self.btn_iniciar.pack(pady=8)
+
+        self.draw()
+        self.animate()
     
-    def _store_popularity(self, value: float):
-        """Guarda la popularidad actual en un JSON en temp para acceso externo."""
+    def abrir_salon_de_la_fama(self):
+        top = tk.Toplevel(self)
+        top.transient(self.winfo_toplevel())
         try:
-            with open(POPULARIDAD_PATH, "w", encoding="utf-8") as f:
-                json.dump({"popularity": float(value)}, f)
+            from SalonFama import SalonFama
+            SalonFama(top, top_limit=10)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo abrir el Salon de la Fama.\n{e}")
+
+    def draw_zones(self):
+        self.canvas.create_rectangle(
+            self.grid_x - 8, 0, self.grid_x + self.grid_cols * self.cell_size + 8, 60,
+            fill=self.palette.safe_zone_bg,
+            outline=self.palette.safe_zone_bg,
+            tags="zones"
+        )
+        
+        self.canvas.create_rectangle(
+            self.grid_x - 8, 690, self.grid_x + self.grid_cols * self.cell_size + 8, 750,
+            fill=self.palette.invader_zone_bg,
+            outline=self.palette.invader_zone_bg,
+            tags="zones"
+        )
+    
+    def draw(self):
+        self.canvas.delete("all")
+        self.canvas.configure(bg=self.palette.background)
+        
+        self.draw_zones()
+        self.grid.draw(self.canvas)
+        
+        self.grid.draw_avatares(self.canvas, self.gestor_avatares.get_avatares_activos())
+        
+        proyectiles_todos = []
+        proyectiles_todos += self.gestor_rooks.get_todos_proyectiles()
+        proyectiles_todos += self.gestor_avatares.get_todos_proyectiles()
+        self.grid.draw_proyectiles(self.canvas, proyectiles_todos)
+
+        self.grid.actualizar_colisiones()
+        self.grid.draw_colisiones(self.canvas)
+
+        tiempo_actual = time.time()
+        monedas = self.sistema_monedas.get_monedas_activas(tiempo_actual)
+        self.grid.draw_monedas(self.canvas, monedas)
+        
+        for house in self.safe_houses:
+            house.draw(self.canvas)
+        
+        self.question_btn.update_presupuesto(self.presupuesto)
+        self.user_icon.draw(self.canvas)
+        self.question_btn.draw(self.canvas)
+        self.top_right_btn.draw(self.canvas)
+        
+        self.canvas.create_window(
+            70, 115,
+            window=self.btn_salon_fama,
+            width=self.top_right_btn.width + 40,
+            height=self.top_right_btn.height,
+            anchor="center"
+        )
+
+        for element_btn in self.element_buttons:
+            element_btn.draw(self.canvas)
+        
+        # Mostrar stats durante el juego
+        if self.juego_activo:
+            self.draw_stats()
+        else:
+            # Antes del juego, mostrar valores en 0
+            self.canvas.create_text(
+                self.width // 2, 710,
+                text="⏱️ Tiempo: 0:00",
+                font=("Arial", 11, "bold"),
+                fill="white"
+            )
+            self.canvas.create_text(
+                self.width // 2, 730,
+                text="🏆 Puntos: 0",
+                font=("Arial", 11, "bold"),
+                fill="#FFD700"
+            )
+    
+    def animate(self):
+        """Actualizacion completa del juego con proyectiles de avatares"""
+        if self.juego_activo and not self.juego_terminado:
+            tiempo_actual = time.time()
+            dt = tiempo_actual - self.ultimo_tiempo
+            self.ultimo_tiempo = tiempo_actual
+            
+            grid_config = {
+                'x': self.grid_x,
+                'y': 100,
+                'cell_size': self.cell_size,
+                'rows': self.grid_rows
+            }
+            
+            self.gestor_rooks.actualizar(dt, tiempo_actual, grid_config)
+            
+            self.gestor_avatares.actualizar(dt, self.grid.torres_grid, grid_config)
+            
+            proyectiles_torres = self.gestor_rooks.get_todos_proyectiles()
+            self.gestor_avatares.verificar_colisiones_proyectiles(proyectiles_torres)
+            
+            self.sistema_monedas.update(tiempo_actual)
+            
+            self.verificar_avatares_en_casas()
+            self.limpiar_torres_destruidas()
+            self.verificar_fin_juego()
+            
+            self.draw()
+        
+        self.after(16, self.animate)
+    
+    def draw_stats(self):
+        """Muestra solo tiempo y puntos calculados con ptsSalonFama"""
+        # Calcular tiempo transcurrido
+        if self.tiempo_inicio_juego:
+            tiempo_transcurrido = time.time() - self.tiempo_inicio_juego
+            minutos = int(tiempo_transcurrido // 60)
+            segundos = int(tiempo_transcurrido % 60)
+            texto_tiempo = f"⏱️ Tiempo: {minutos:02d}:{segundos:02d}"
+        else:
+            texto_tiempo = "⏱️ Tiempo: 0:00"
+        
+        # Actualizar caché de tempo/popularidad solo cada segundo (evitar spam de warnings)
+        tiempo_actual = time.time()
+        if tiempo_actual - self.ultimo_calculo_stats >= 1.0:
+            self.ultimo_calculo_stats = tiempo_actual
+            
+            # Calcular tempo
+            try:
+                tempo = float(get_bpm_snapshot(4.0))
+                self.tempo_cache = tempo if tempo > 0 else 0.0
+            except Exception:
+                self.tempo_cache = 0.0
+            
+            # Calcular popularidad
+            try:
+                pop = get_popularidad()
+                self.popularidad_cache = float(pop) if pop is not None else 0.0
+            except Exception:
+                self.popularidad_cache = 0.0
+        
+        # Usar valores cacheados
+        tempo = self.tempo_cache
+        popularidad = self.popularidad_cache
+        
+        stats = self.gestor_avatares.get_estadisticas()
+        stats_puntos = self.sistema_puntos.get_estadisticas()
+        
+        avatars_matados = int(stats.get('eliminados', 0))
+        puntos_avatar = float(stats_puntos.get('puntos_totales', 0))
+        limite_maximo = 9999.0
+        
+        puntos_salon_fama = pts_salon(tempo, popularidad, avatars_matados, puntos_avatar, limite_maximo)
+        
+        texto_puntos = f"🏆 Puntos: {int(puntos_salon_fama)}"
+        
+        # Dibujar tiempo
+        self.canvas.create_text(
+            self.width // 2, 710,
+            text=texto_tiempo,
+            font=("Arial", 11, "bold"),
+            fill="white"
+        )
+        
+        # Dibujar puntos
+        self.canvas.create_text(
+            self.width // 2, 730,
+            text=texto_puntos,
+            font=("Arial", 11, "bold"),
+            fill="#FFD700"
+        )
+    
+    def verificar_avatares_en_casas(self):
+        """Método simplificado - las casas ya no reciben daño"""
+        pass
+    
+    def limpiar_torres_destruidas(self):
+        torres_a_eliminar = []
+        for pos, torre in self.grid.torres_grid.items():
+            if not torre.activa:
+                # CRÍTICO: Desactivar todos los proyectiles de esta torre (sin sonido)
+                for proyectil in torre.proyectiles:
+                    proyectil.desactivar(por_impacto=False)  # ✅ Sin sonido al destruir torre
+                torre.proyectiles.clear()
+                torres_a_eliminar.append(pos)
+        
+        for pos in torres_a_eliminar:
+            del self.grid.torres_grid[pos]
+        
+        self.gestor_rooks.eliminar_torres_destruidas()
+    
+    def verificar_fin_juego(self):
+        """Verifica las condiciones de fin de juego"""
+        stats = self.gestor_avatares.get_estadisticas()
+        
+        # PERDER: Si algún avatar pasó arriba
+        if stats['llegaron_meta'] > 0:
+            self.terminar_juego(victoria=False, razon="avatares_pasaron")
+            return
+        
+        # GANAR: 60 segundos sin que ningún avatar haya pasado
+        if self.tiempo_inicio_juego:
+            tiempo_transcurrido = time.time() - self.tiempo_inicio_juego
+            
+            # Si han pasado 60 segundos Y NO ha pasado ningún avatar
+            if tiempo_transcurrido >= 60:
+                self.terminar_juego(victoria=True)
+    
+    def _actualizar_pts_salon(self, username: str, nuevo_pts: float):
+        try:
+            usuarios = cargar_usuarios()
+            if not isinstance(usuarios, dict):
+                usuarios = {}
+        except Exception:
+            usuarios = {}
+
+        if username not in usuarios or not isinstance(usuarios[username], dict):
+            usuarios[username] = {}
+
+        actual = float(usuarios[username].get('pts', 0) or 0)
+        mejor = max(actual, float(nuevo_pts))
+        usuarios[username]['pts'] = int(round(mejor))
+        guardar_usuarios(usuarios)
+
+    def terminar_juego(self, victoria, razon=None):
+        if self.juego_terminado:
+            return
+
+        self.juego_terminado = True
+        self.gestor_avatares.detener()
+
+        stats = self.gestor_avatares.get_estadisticas()
+        stats_puntos = self.sistema_puntos.get_estadisticas()
+
+        if victoria:
+            # Calcular ptsSalonFama
+            try:
+                tempo = float(get_bpm_snapshot(4.0))
+            except Exception:
+                tempo = 0.0
+
+            try:
+                pop = get_popularidad()
+                popularidad = float(pop) if pop is not None else 0.0
+            except Exception:
+                popularidad = 0.0
+
+            avatars_matados = int(stats.get('eliminados', 0))
+            puntos_avatar = float(stats_puntos.get('puntos_totales', 0))
+            limite_maximo = 9999.0
+
+            puntaje_final = pts_salon(tempo, popularidad, avatars_matados, puntos_avatar, limite_maximo)
+
+            titulo = "🎉 VICTORIA!"
+            mensaje = f"¡Sobreviviste 60 segundos sin dejar pasar ningún avatar!\n\n"
+            mensaje += f"🏆 Puntos Salón de la Fama: {int(puntaje_final)}\n"
+            mensaje += f"💀 Enemigos eliminados: {avatars_matados}"
+
+            if getattr(self, 'current_username', None):
+                try:
+                    self._actualizar_pts_salon(self.current_username, puntaje_final)
+                    print(f"🏆 Salon de la Fama actualizado para @{self.current_username}: {puntaje_final:.0f} pts")
+                except Exception as e:
+                    print(f"⚠ No se pudo actualizar Salon de la Fama: {e}")
+            else:
+                print("ℹ No se actualizo Salon de la Fama (username desconocido).")
+
+            self.after(10, lambda: self._abrir_animacion(
+                ("win0", "win1", "win2"),
+                f"¡Defendiste la aldea!\n{int(puntaje_final)} puntos"
+            ))
+            return
+        else:
+            # Calcular ptsSalonFama incluso en derrota
+            try:
+                tempo = float(get_bpm_snapshot(4.0))
+            except Exception:
+                tempo = 0.0
+
+            try:
+                pop = get_popularidad()
+                popularidad = float(pop) if pop is not None else 0.0
+            except Exception:
+                popularidad = 0.0
+
+            avatars_matados = int(stats.get('eliminados', 0))
+            puntos_avatar = float(stats_puntos.get('puntos_totales', 0))
+            limite_maximo = 9999.0
+
+            puntaje_final = pts_salon(tempo, popularidad, avatars_matados, puntos_avatar, limite_maximo)
+            
+            titulo = "💀 DERROTA"
+            
+            # Mensaje específico según la razón de derrota
+            if razon == "avatares_pasaron":
+                avatares_pasados = stats.get('llegaron_meta', 0)
+                mensaje = f"¡{avatares_pasados} avatar(es) pasaron a tu aldea!\n\n"
+            else:
+                mensaje = f"Tu aldea fue destruida.\n\n"
+            
+            mensaje += f"🏆 Puntos Salón de la Fama: {int(puntaje_final)}\n"
+            mensaje += f"💀 Enemigos eliminados: {avatars_matados}"
+            
+            # Actualizar pts incluso en derrota
+            if getattr(self, 'current_username', None):
+                try:
+                    self._actualizar_pts_salon(self.current_username, puntaje_final)
+                    print(f"🏆 Salon de la Fama actualizado para @{self.current_username}: {puntaje_final:.0f} pts")
+                except Exception as e:
+                    print(f"⚠ No se pudo actualizar Salon de la Fama: {e}")
+            
+            self.after(10, lambda: self._abrir_animacion(
+                ("fail0", "fail1", "fail2"),
+                f"Tu aldea fue dominada.\n{int(puntaje_final)} puntos"
+            ))
+        return
+    
+    def on_canvas_click(self, event):
+        if self.juego_terminado:
+            return
+        
+        if self.esperando_colocacion:
+            cell = self.grid.get_cell_from_coords(event.x, event.y)
+            if cell:
+                row, col = cell
+                if (row, col) not in self.grid.torres_grid:
+                    self.colocar_torre(row, col)
+                else:
+                    messagebox.showinfo("Celda ocupada", "Ya hay una torre aqui")
+            return
+        
+        if self.juego_activo and not self.esperando_colocacion:
+            cell = self.grid.get_cell_from_coords(event.x, event.y)
+            if cell:
+                row, col = cell
+                dinero = self.sistema_monedas.intentar_recolectar(col, row)
+                if dinero > 0:
+                    self.presupuesto += dinero
+                    self.draw()
+                    return
+        
+        for btn in self.element_buttons:
+            if btn.is_clicked(event.x, event.y):
+                btn.on_click()
+                return
+        
+        if self.top_right_btn.visible:
+            x1 = self.top_right_btn.x - self.top_right_btn.width // 2
+            y1 = self.top_right_btn.y - self.top_right_btn.height // 2
+            x2 = self.top_right_btn.x + self.top_right_btn.width // 2
+            y2 = self.top_right_btn.y + self.top_right_btn.height // 2
+            
+            if x1 <= event.x <= x2 and y1 <= event.y <= y2:
+                self.on_top_right_button_pressed()
+    
+    def colocar_torre(self, row, col):
+        if self.torre_a_colocar and self.presupuesto >= self.torre_a_colocar['price']:
+            mapeo_frecuencias = {
+                'sand': self.frecuencias.get("⛰️  TORRE DE ARENA", 5),
+                'rock': self.frecuencias.get("🪨  TORRE DE ROCA", 5),
+                'water': self.frecuencias.get("💧 TORRE DE AGUA", 5),
+                'fire': self.frecuencias.get("🔥 TORRE DE FUEGO", 5)
+            }
+            
+            frecuencia = mapeo_frecuencias.get(self.esperando_colocacion, 5)
+            
+            posicion = [
+                self.grid_x + col * self.cell_size + self.cell_size // 2,
+                100 + row * self.cell_size + self.cell_size // 2
+            ]
+            
+            # Crear torre en gestor_rooks y obtener la instancia
+            torre_tipo = self.torre_a_colocar['class']().tipo
+            torre = self.gestor_rooks.agregar_torre(torre_tipo, row, col)
+            
+            if torre:  # Si se creó exitosamente
+                # Usar la MISMA instancia en el grid
+                self.grid.add_torre(torre, row, col)
+                
+                self.presupuesto -= self.torre_a_colocar['price']
+                
+                print(f"✅ Torre colocada | Presupuesto: ${self.presupuesto}")
+            else:
+                print(f"❌ No se pudo colocar la torre")
+            
+            self.esperando_colocacion = None
+            self.torre_a_colocar = None
+            
+            self.draw()
+    
+    def on_top_right_button_pressed(self):
+        print("\n🎮 JUEGO INICIADO!")
+        print(f"Nivel: {self.nivel}")
+        print(f"Presupuesto: ${self.presupuesto}")
+        
+        self.top_right_btn.hide()
+        self.juego_activo = True
+        self.tiempo_inicio_juego = time.time()
+        self.ultimo_tiempo = time.time()
+        
+        self.gestor_avatares.iniciar()
+        
+        self.draw()
+    
+    def _abrir_animacion(self, basenames, mensaje):
+        root = self.winfo_toplevel()
+        try:
+            root.withdraw()
         except Exception:
             pass
+        AnimationWindow(master=root, image_basenames=basenames, message_text=mensaje)
 
-    def dibujar_rueda_color(self):
-        """Dibuja una rueda de color interactiva tipo Paint."""
-        center_x, center_y = 110, 110
-        radius = 90
-        num_segments = 360
+    def apply_new_palette(self, new_palette_dict):
+        """Aplica una nueva paleta de colores al juego en tiempo real"""
+        self.palette.update_palette(new_palette_dict)
+        self.grid.palette = self.palette
         
-        for i in range(num_segments):
-            angle = i * (360 / num_segments)
-            hue = angle / 360
-            
-            rgb = self.hsv_to_rgb(hue, 1.0, 1.0)
-            color = '#%02x%02x%02x' % rgb
-            
-            angle_rad = math.radians(angle)
-            
-            x1 = center_x + radius * math.cos(angle_rad)
-            y1 = center_y + radius * math.sin(angle_rad)
-            
-            self.canvas_color.create_line(
-                center_x, center_y, x1, y1, 
-                fill=color, width=3, tags="color_wheel"
-            )
+        for house in self.safe_houses:
+            house.palette = self.palette
         
-        inner_radius = 30
-        self.canvas_color.create_oval(
-            center_x - inner_radius, center_y - inner_radius,
-            center_x + inner_radius, center_y + inner_radius,
-            fill='white', outline='#34495e', width=2
-        )
-    
-    def hsv_to_rgb(self, h, s, v):
-        """Convierte un color de HSV a RGB."""
-        if s == 0.0:
-            return (int(v * 255), int(v * 255), int(v * 255))
+        self.user_icon.palette = self.palette
+        self.question_btn.palette = self.palette
+        self.top_right_btn.palette = self.palette
         
-        i = int(h * 6.0)
-        f = (h * 6.0) - i
-        p = v * (1.0 - s)
-        q = v * (1.0 - s * f)
-        t = v * (1.0 - s * (1.0 - f))
-        i = i % 6
+        for element_btn in self.element_buttons:
+            element_btn.palette = self.palette
         
-        if i == 0:
-            return (int(v * 255), int(t * 255), int(p * 255))
-        if i == 1:
-            return (int(q * 255), int(v * 255), int(p * 255))
-        if i == 2:
-            return (int(p * 255), int(v * 255), int(t * 255))
-        if i == 3:
-            return (int(p * 255), int(q * 255), int(v * 255))
-        if i == 4:
-            return (int(t * 255), int(p * 255), int(v * 255))
-        if i == 5:
-            return (int(v * 255), int(p * 255), int(q * 255))
-    
-    def seleccionar_color_rueda(self, event):
-        """Maneja el evento de clic en la rueda de colores."""
-        center_x, center_y = 110, 110
-        
-        dx = event.x - center_x
-        dy = event.y - center_y
-        distance = math.sqrt(dx**2 + dy**2)
-        
-        if 30 < distance < 90:
-            angle = math.degrees(math.atan2(dy, dx))
-            if angle < 0:
-                angle += 360
-            
-            hue = angle / 360
-            rgb = self.hsv_to_rgb(hue, 1.0, 1.0)
-            color_hex = '#%02x%02x%02x' % rgb
-            
-            self.color_favorito.set(color_hex)
-            self.color_display.configure(bg=color_hex)
-            self.color_label.configure(text=color_hex)
-            
-            if GAME_AVAILABLE and self.game_preview:
-                self.update_game_palette()
-    
-    def cambiar_tema(self, *args):
-        """Cambia el esquema de colores según el tema seleccionado."""
-        tema = self.tema_var.get()
-        
-        if tema == "oscuro":
-            bg_frames = '#2d2d2d'
-            fg_texto = '#ffffff'
-        elif tema == "claro":
-            bg_frames = '#ffffff'
-            fg_texto = '#2c3e50'
+        self.draw()
+
+
+class AnimationWindow(tk.Toplevel):
+    def __init__(self, master=None, image_basenames=("win0","win1","win2"), message_text=""):
+        super().__init__(master)
+        self.title("Resultado")
+        self.geometry("800x500")
+        self.resizable(True, True)
+
+        import os
+        from PIL import Image, ImageTk
+
+        self._orig_frames = []
+        exts = [".png", ".gif", ".jpg", ".jpeg"]
+        for base in image_basenames:
+            path = None
+            for ext in exts:
+                p = base + ext
+                if os.path.exists(p):
+                    path = p
+                    break
+            if path:
+                try:
+                    self._orig_frames.append(Image.open(path).convert("RGBA"))
+                except Exception:
+                    pass
+
+        self._label = tk.Label(self, borderwidth=0, highlightthickness=0)
+        self._label.pack(fill="both", expand=True)
+
+        self._msg = tk.Label(self, text=message_text, font=("Arial", 16, "bold"),
+                             bg="#000000", fg="white", padx=10, pady=5)
+        self._msg.place(relx=0.5, rely=0.04, anchor="n")
+
+        self._btn = tk.Button(self, text="Cerrar", command=self._on_close)
+        self._btn.place(relx=0.5, rely=0.96, anchor="s")
+
+        self._idx = 0
+        self._running = True
+        self._photo_cache = None
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self.bind("<Configure>", self._on_resize)
+
+        if not self._orig_frames:
+            self._label.configure(text="No se hallaron imagenes para la animacion.")
         else:
-            bg_frames = '#bdc3c7'
-            fg_texto = '#2c3e50'
-        
-        self.color_frame.configure(bg=bg_frames, fg=fg_texto)
-        self.tema_frame.configure(bg=bg_frames, fg=fg_texto)
-        self.musica_frame.configure(bg=bg_frames, fg=fg_texto)
-        self.canvas_color.configure(bg=bg_frames)
-        self.color_info_frame.configure(bg=bg_frames)
-        self.color_info_label.configure(bg=bg_frames, fg=fg_texto)
-        self.color_label.configure(bg=bg_frames, fg=fg_texto)
-        self.musica_label.configure(bg=bg_frames, fg=fg_texto)
-        self.opciones_frame.configure(bg=bg_frames)
-        self.rb_oscuro.configure(bg=bg_frames, fg=fg_texto, activebackground=bg_frames)
-        self.rb_claro.configure(bg=bg_frames, fg=fg_texto, activebackground=bg_frames)
-        self.rb_medio.configure(bg=bg_frames, fg=fg_texto, activebackground=bg_frames)
-        self.botones_frame.configure(bg=bg_frames)
-        
-        if GAME_AVAILABLE and self.game_preview:
-            self.update_game_palette()
-    
-    def pausar_reanudar_musica(self):
-        """Pausa o reanuda la música según el estado actual"""
-        if not self.is_playing:
+            self._tick()
+
+    def _render_current_frame(self):
+        if not self._orig_frames:
             return
-        
-        try:
-            if AUDIO_PLAYER == 'vlc' and self.vlc_player:
-                if self.is_paused:
-                    self.vlc_player.play()
-                    self.is_paused = False
-                    self.btn_pausar.config(text="Pausar Música", bg='#3498db')
-                    print("▶️ Música reanudada")
-                else:
-                    self.vlc_player.pause()
-                    self.is_paused = True
-                    self.btn_pausar.config(text="Reanudar Música", bg='#27ae60')
-                    print("⏸️ Música pausada")
-                    
-            elif AUDIO_PLAYER == 'pygame':
-                from pygame import mixer
-                if self.is_paused:
-                    mixer.music.unpause()
-                    self.is_paused = False
-                    self.btn_pausar.config(text="Pausar Música", bg='#3498db')
-                    print("▶️ Música reanudada")
-                else:
-                    mixer.music.pause()
-                    self.is_paused = True
-                    self.btn_pausar.config(text="Reanudar Música", bg='#27ae60')
-                    print("⏸️ Música pausada")
-                    
-        except Exception as e:
-            print(f"Error al pausar/reanudar: {e}")
-    
-    def buscar_cancion(self):
-        """Busca y reproduce la canción solicitada usando YouTube."""
-        cancion = self.cancion_var.get().strip()
-        
-        if not cancion:
-            messagebox.showwarning("Advertencia", "Por favor ingresa el nombre de una canción")
+        w = max(1, self._label.winfo_width())
+        h = max(1, self._label.winfo_height())
+
+        pil_img = self._orig_frames[self._idx].resize((w, h), resample=Image.LANCZOS)
+        self._photo_cache = ImageTk.PhotoImage(pil_img, master=self)
+        self._label.configure(image=self._photo_cache)
+        self._label.image = self._photo_cache
+
+    def _tick(self):
+        if not self._running or not self._orig_frames:
             return
-        
-        if not YT_DLP_AVAILABLE:
-            messagebox.showerror(
-                "Error",
-                "La librería yt-dlp no está disponible.\n\nInstala: pip install yt-dlp"
-            )
-            return
-        
-        if not AUDIO_PLAYER:
-            error_msg = "No hay reproductor de audio disponible.\n\n"
-            if VLC_ERROR:
-                error_msg += f"Error VLC: {VLC_ERROR}\n\n"
-            if PYGAME_ERROR:
-                error_msg += f"Error pygame: {PYGAME_ERROR}\n\n"
-            error_msg += (
-                "Soluciones:\n"
-                "1. Instala VLC Media Player:\n"
-                "   https://www.videolan.org/vlc/\n"
-                "   Luego reinicia el programa\n\n"
-                "2. O instala pygame:\n"
-                "   pip install pygame"
-            )
-            messagebox.showerror("Error", error_msg)
-            return
-        
-        # Mostrar qué reproductor se usará
-        player_names = {'vlc': 'VLC', 'pygame': 'pygame'}
-        print(f"🎵 Usando reproductor: {player_names.get(AUDIO_PLAYER, 'desconocido')}")
-        
-        self._stop_music()
-        self.btn_buscar.config(state='disabled', text="Buscando...")
-        self.root.update()
-        
-        self.music_thread = threading.Thread(
-            target=self._download_and_play,
-            args=(cancion,),
-            daemon=True
+        self._render_current_frame()
+        self._idx = (self._idx + 1) % len(self._orig_frames)
+        self.after(1000, self._tick)
+
+    def _on_resize(self, event):
+        if self._running and self._orig_frames:
+            self._render_current_frame()
+
+    def _on_close(self):
+        self._running = False
+        self.destroy()
+
+
+class VillageGameWindow:
+    def __init__(self, nivel="FACIL", frecuencias=None, initial_palette=None, current_username=None):
+        self.root = tk.Tk()
+        self.root.title("Avatars vs Rooks")
+        self.root.geometry("600x750")
+        self.root.resizable(False, False)
+
+        self.game = VillageGame(
+            self.root, 600, 750, nivel, frecuencias, initial_palette,
+            current_username=current_username
         )
-        self.popularity_reported = False
-        self.current_popularity = None
-
-        self.music_thread.start()
+        self.game.pack()
     
-    def _download_and_play(self, query):
-        """Descarga y reproduce la canción en un hilo separado."""
-        try:
-            if AUDIO_PLAYER == 'vlc':
-                print("📥 Buscando stream de audio...")
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'quiet': True,
-                    'no_warnings': True,
-                    # Opcional, ayuda a asegurar metadatos completos:
-                    'default_search': 'ytsearch',
-                    'noplaylist': True,
-                }
-                with YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-
-                    if "entries" in info and info["entries"]:
-                        entry = info["entries"][0]
-                    else:
-                        entry = info
-
-                    title = entry.get('title', 'Desconocido')
-                    uploader = entry.get('uploader', 'YouTube')
-                    duration = entry.get('duration', 0)
-                    stream_url = entry.get('url')
-
-                # 👇 imprime la popularidad en la ruta VLC
-                self._print_popularity_once(entry)
-
-                print(f"✓ Canción encontrada: {title}")
-                self._play_vlc_stream(stream_url)
-                self.is_playing = True
-
-                
-            elif AUDIO_PLAYER == 'pygame':
-                # pygame: descargar archivo
-                print("📥 Descargando audio...")
-                temp_dir = tempfile.gettempdir()
-                output_path = os_module.path.join(temp_dir, 'youtube_audio')
-                
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'outtmpl': output_path,
-                    'quiet': True,
-                    'no_warnings': True,
-                }
-                
-                with YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(f"ytsearch1:{query}", download=True)
-                    
-                    if "entries" in info and info["entries"]:
-                        entry = info["entries"][0]
-                    else:
-                        entry = info
-                    
-                    title = entry.get('title', 'Desconocido')
-                    uploader = entry.get('uploader', 'YouTube')
-                    duration = entry.get('duration', 0)
-                    downloaded_file = ydl.prepare_filename(entry)
-                self._print_popularity_once(entry)
-
-                if not os_module.path.exists(downloaded_file):
-                    import glob
-                    possible_files = glob.glob(output_path + '*')
-                    if possible_files:
-                        downloaded_file = possible_files[0]
-                    else:
-                        raise RuntimeError("No se pudo encontrar el archivo descargado")
-                
-                print(f"✓ Archivo descargado: {downloaded_file}")
-                self.current_song_file = downloaded_file
-                
-                from pygame import mixer
-                mixer.music.load(downloaded_file)
-                mixer.music.play()
-                self.is_playing = True
-                print("✓ Reproduciendo con pygame")
-            
-            self.root.after(0, lambda t=title, u=uploader, d=duration: self._on_music_ready(t, u, d))
-            
-        except Exception as ex:
-            import traceback
-            error_msg = str(ex)
-            traceback_msg = traceback.format_exc()
-            print(f"✗ Error: {error_msg}")
-            print(traceback_msg)
-            self.root.after(0, lambda msg=error_msg: self._on_music_error(msg))
-    
-    def _play_vlc_stream(self, stream_url):
-        """Reproduce stream de audio con VLC"""
-        import vlc
-        import time
-        
-        print(f"🎵 Intentando reproducir con VLC...")
-        
-        if not self.vlc_instance:
-            self.vlc_instance = vlc.Instance('--no-video', '--quiet')
-        
-        self.vlc_player = self.vlc_instance.media_player_new()
-        media = self.vlc_instance.media_new(stream_url)
-        self.vlc_player.set_media(media)
-        
-        # Configurar volumen
-        self.vlc_player.audio_set_volume(100)
-        
-        print("▶️ Iniciando reproducción...")
-        self.vlc_player.play()
-        
-        # Esperar y verificar estado
-        start = time.time()
-        while time.time() - start < 5:
-            state = self.vlc_player.get_state()
-            
-            if state == vlc.State.Playing:
-                print("✓ Reproduciendo correctamente")
-                return
-            elif state == vlc.State.Error:
-                print("✗ Error en reproducción VLC")
-                raise RuntimeError("VLC no pudo reproducir el stream")
-            
-            time.sleep(0.5)
-        
-        print(f"⚠ Estado final VLC: {self.vlc_player.get_state()}")
-    
-    def _on_music_ready(self, title, uploader, duration):
-        """Se ejecuta cuando la música está lista"""
-        self.btn_buscar.config(state='normal', text="Buscar Canción")
-        self.btn_pausar.config(state='normal')  # Habilitar botón de pausa
-        
-        mensaje = (
-            f"🎵 Reproduciendo de fondo:\n\n"
-            f"Título: {title}\n"
-            f"Canal: {uploader}\n"
-            f"Duración: {self._format_duration(duration)}"
-        )
-        messagebox.showinfo("Reproduciendo", mensaje)
-    
-    def _on_music_error(self, error_msg):
-        """Se ejecuta cuando hay un error"""
-        self.btn_buscar.config(state='normal', text="Buscar Canción")
-        messagebox.showerror("Error", f"No se pudo reproducir la canción:\n{error_msg}")
-    
-    def _stop_music(self):
-        """Detiene la reproducción actual"""
-        if self.is_playing:
-            try:
-                if AUDIO_PLAYER == 'vlc' and self.vlc_player:
-                    self.vlc_player.stop()
-                    self.vlc_player = None
-                elif AUDIO_PLAYER == 'pygame':
-                    from pygame import mixer
-                    mixer.music.stop()
-            except:
-                pass
-            self.is_playing = False
-            self.is_paused = False
-            self.btn_pausar.config(state='disabled', text="Pausar Música", bg='#3498db')
-        
-        if self.current_song_file and os_module.path.exists(self.current_song_file):
-            try:
-                os_module.remove(self.current_song_file)
-            except:
-                pass
-            self.current_song_file = None
-    
-    def _format_duration(self, seconds):
-        """Formatea la duración en segundos a formato MM:SS."""
-        if not seconds:
-            return "0:00"
-        
-        minutes = int(seconds // 60)
-        secs = int(seconds % 60)
-        return f"{minutes}:{secs:02d}"
-    
-    def iniciar_juego(self):
-        """Inicia el juego en una ventana independiente y cierra la ventana de personalización."""
-        if not GAME_AVAILABLE:
-            messagebox.showerror(
-                "Error", 
-                "Los módulos del juego no están disponibles.\n\n"
-                "Asegúrate de tener:\n- PaletaColores.py\n- VentanaPrincipal.py"
-            )
-            return
-        
-        try:
-            color = self.color_favorito.get()
-            tema = self.tema_var.get()
-            cancion = self.cancion_var.get().strip()
-            
-            palette = generate_palette(color, tema)
-            
-            # Ocultar la ventana de personalización en lugar de destruirla
-            self.root.withdraw()
-            
-            # Crear ventana independiente para el juego
-            game_window = tk.Toplevel()
-            game_window.title("Sistema de Aldeas - Juego")
-            game_window.geometry("500x700")
-            game_window.resizable(False, False)
-            
-            # Cuando se cierre la ventana del juego, cerrar toda la aplicación
-            game_window.protocol("WM_DELETE_WINDOW", lambda: self._cerrar_aplicacion(game_window))
-            
-            game_frame = VillageGame(game_window, width=500, height=700, initial_palette=palette)
-            game_frame.pack()
-            
-        except Exception as e:
-            self.root.deiconify()  # Mostrar ventana de personalización si hay error
-            messagebox.showerror("Error", f"No se pudo iniciar el juego:\n{e}")
-    
-    def _cerrar_aplicacion(self, game_window):
-        """Cierra la ventana del juego y toda la aplicación"""
-        game_window.destroy()
-        self.root.destroy()
-    
-    def _crear_panel_preview(self, parent):
-        """Crea el panel derecho con el preview del juego."""
-        if not GAME_AVAILABLE:
-            self.game_preview = None
-            return
-        
-        right_panel = tk.Frame(parent, bg='#2c3e50', relief='sunken', bd=3)
-        right_panel.pack(side='right', fill='both', expand=True, padx=(0, 10), pady=10)
-        
-        preview_title = tk.Label(
-            right_panel, 
-            text="PREVIEW DEL JUEGO", 
-            font=("Arial", 14, "bold"), 
-            bg='#2c3e50', 
-            fg='white'
-        )
-        preview_title.pack(pady=10)
-        
-        try:
-            self.game_preview = VillageGame(right_panel, width=500, height=700)
-            self.game_preview.pack(pady=5)
-        except Exception as e:
-            error_label = tk.Label(
-                right_panel, 
-                text=f"Error al crear preview:\n{e}",
-                bg='#2c3e50', 
-                fg='red', 
-                font=("Arial", 10)
-            )
-            error_label.pack(pady=20)
-            self.game_preview = None
-    
-    def update_game_palette(self):
-        """Actualiza la paleta de colores del preview."""
-        if not GAME_AVAILABLE or not self.game_preview:
-            return
-        
-        try:
-            color_base = self.color_favorito.get()
-            tema = self.tema_var.get()
-            
-            palette = generate_palette(color_base, tema)
-            self.game_preview.apply_new_palette(palette)
-        except Exception as e:
-            pass
+    def run(self):
+        self.root.mainloop()
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = ColorSelectorApp(root)
-    root.mainloop()
+    frecuencias_prueba = {
+        "⛰️  TORRE DE ARENA": 3,
+        "🪨  TORRE DE ROCA": 4,
+        "💧 TORRE DE AGUA": 2,
+        "🔥 TORRE DE FUEGO": 5
+    }
+    game_window = VillageGameWindow(nivel="DIFICIL", frecuencias=frecuencias_prueba)
+    game_window.run()

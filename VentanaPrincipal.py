@@ -3,23 +3,165 @@ Sistema de juego de aldeas con cuadricula.
 Version completamente en Tkinter (sin Pygame).
 Con sistema de puntos y monedas integrado.
 VERSION CON SPRITES ANIMADOS: Los avatares alternan entre imagenes de paso
+VERSION CON SONIDO: Las torres reproducen sonidos al impactar
 """
 import io, base64
-from ptsSalon import pts as pts_salon
-from ventana_personalizacion import get_popularidad
-from bpm_live import get_bpm_snapshot
-from Login import cargar_usuarios, guardar_usuarios
-from PIL import Image, ImageTk
 import os
-
 import tkinter as tk
 from tkinter import Canvas, messagebox
 import random
 import time
 import threading
+from PIL import Image, ImageTk
+
+# Importaciones con manejo de errores
+try:
+    from ptsSalon import pts as pts_salon
+except ImportError:
+    print("⚠️ No se pudo importar ptsSalon, usando valores por defecto")
+    def pts_salon(*args, **kwargs):
+        return 0
+
+try:
+    from ventana_personalizacion import get_popularidad
+except (ImportError, AttributeError) as e:
+    print(f"⚠️ No se pudo importar get_popularidad: {e}")
+    print("   Usando función por defecto")
+    def get_popularidad(*args, **kwargs):
+        return 50  # Valor por defecto
+
+try:
+    from bpm_live import get_bpm_snapshot
+except ImportError:
+    print("⚠️ No se pudo importar get_bpm_snapshot, usando valores por defecto")
+    def get_bpm_snapshot():
+        return 60
+
+try:
+    from Login import cargar_usuarios, guardar_usuarios
+except ImportError:
+    print("⚠️ No se pudo importar Login, usando funciones por defecto")
+    def cargar_usuarios():
+        return {}
+    def guardar_usuarios(*args, **kwargs):
+        pass
+
 from RooksClass import RookArena, RookRoca, RookAgua, RookFuego, GestorRooks
 from AvatarClass import GestorAvatares
 from MoneySystem import SistemaPuntos, SistemaMonedas
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SISTEMA DE SONIDO PARA TORRES
+# ═══════════════════════════════════════════════════════════════════════════
+
+class SoundManager:
+    """Gestor de sonidos para las torres"""
+    
+    def __init__(self):
+        """Inicializa el gestor de sonidos"""
+        self.sonidos = {}
+        self.pygame_disponible = False
+        self.cargar_sonidos()
+    
+    def cargar_sonidos(self):
+        """Carga los archivos de sonido de las torres"""
+        try:
+            import pygame
+            pygame.mixer.init()
+            self.pygame_disponible = True
+            print("✅ Sistema de sonido inicializado con Pygame")
+        except ImportError:
+            print("⚠️ Pygame no disponible. Los sonidos no funcionarán.")
+            print("   Instala: pip install pygame")
+            return
+        
+        # Mapeo de tipos de torre a archivos de sonido
+        mapeo_sonidos = {
+            'Arena': 'arena_sound.mp3',
+            'Roca': 'piedra_sound.mp3',
+            'Agua': 'agua_sound.mp3',
+            'Fuego': 'fuego_sound.mp3'
+        }
+        
+        extensiones = ['.mp3', '.wav', '.ogg']
+        
+        for tipo, archivo_base in mapeo_sonidos.items():
+            sonido_cargado = False
+            
+            # Intentar con el nombre exacto primero
+            if os.path.exists(archivo_base):
+                if self._cargar_sonido_archivo(tipo, archivo_base):
+                    sonido_cargado = True
+            
+            # Si no se cargó, intentar con variaciones
+            if not sonido_cargado:
+                nombre_sin_ext = archivo_base.rsplit('.', 1)[0]
+                for ext in extensiones:
+                    path = f"{nombre_sin_ext}{ext}"
+                    if os.path.exists(path):
+                        if self._cargar_sonido_archivo(tipo, path):
+                            sonido_cargado = True
+                            break
+            
+            if not sonido_cargado:
+                print(f"⚠️ No se encontró sonido para torre: {tipo} ({archivo_base})")
+    
+    def _cargar_sonido_archivo(self, tipo, path):
+        """Carga un archivo de sonido específico"""
+        try:
+            if self.pygame_disponible:
+                import pygame
+                sonido = pygame.mixer.Sound(path)
+                self.sonidos[tipo] = sonido
+                print(f"✅ Sonido cargado: {path} -> {tipo}")
+                return True
+        except Exception as e:
+            print(f"⚠️ Error cargando {path}: {e}")
+            return False
+        
+        return False
+    
+    def reproducir(self, tipo_torre):
+        """
+        Reproduce el sonido de impacto de una torre
+        
+        Args:
+            tipo_torre: Tipo de torre ('Arena', 'Roca', 'Agua', 'Fuego')
+        """
+        if not self.pygame_disponible or tipo_torre not in self.sonidos:
+            return
+        
+        try:
+            sonido = self.sonidos[tipo_torre]
+            sonido.play()
+        except Exception as e:
+            print(f"⚠️ Error reproduciendo sonido {tipo_torre}: {e}")
+    
+    def detener_todos(self):
+        """Detiene todos los sonidos en reproducción"""
+        try:
+            if self.pygame_disponible:
+                import pygame
+                pygame.mixer.stop()
+        except Exception as e:
+            print(f"⚠️ Error deteniendo sonidos: {e}")
+
+
+# Instancia global del gestor de sonidos
+_sound_manager = None
+
+def get_sound_manager():
+    """Obtiene la instancia global del gestor de sonidos"""
+    global _sound_manager
+    if _sound_manager is None:
+        _sound_manager = SoundManager()
+    return _sound_manager
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CLASES DEL JUEGO
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 class ColorPalette:
@@ -115,6 +257,7 @@ class SpriteManager:
         self.cargar_proyectiles()
         self.cargar_armas()
         self.cargar_colisiones()
+        self.cargar_torres()  # ✅ NUEVO: Cargar sprites de torres
     
     def cargar_sprites(self):
         """Carga todas las imagenes de sprites disponibles"""
@@ -233,6 +376,39 @@ class SpriteManager:
                         print(f"⚠️ Error cargando {path}: {e}")
             if not imagen_cargada:
                 self.colisiones.append(None)
+    
+    def cargar_torres(self):
+        """✅ NUEVO: Carga imagenes de torres (Rooks)"""
+        self.torres = {}
+        extensiones = ['.png', '.jpg', '.jpeg', '.gif']
+        
+        # Mapeo de archivos a tipos de torre
+        mapeo_torres = {
+            'Arena': 'R01',    # Torre de Arena -> R01.png
+            'Roca': 'R02',     # Torre de Roca -> R02.png
+            'Fuego': 'R03',    # Torre de Fuego -> R03.png
+            'Agua': 'R04'      # Torre de Agua -> R04.png
+        }
+        
+        for tipo, archivo in mapeo_torres.items():
+            imagen_cargada = False
+            for ext in extensiones:
+                path = f"{archivo}{ext}"
+                if os.path.exists(path):
+                    try:
+                        img = Image.open(path).convert("RGBA")
+                        # Ajustar al tamaño de la celda (60x60)
+                        img = img.resize((60, 60), Image.LANCZOS)
+                        self.torres[tipo] = img
+                        print(f"✅ Torre cargada: {path} -> {tipo}")
+                        imagen_cargada = True
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Error cargando {path}: {e}")
+            
+            if not imagen_cargada:
+                print(f"⚠️ No se encontró sprite para torre: {tipo}")
+                self.torres[tipo] = None
     
     def get_proyectil_sprite(self, tipo_avatar, canvas):
         """Obtiene el sprite del proyectil segun el tipo de avatar"""
@@ -679,29 +855,47 @@ class Grid:
         random.seed()
     
     def draw_torre(self, canvas, torre, row, col):
+        """✅ MODIFICADO: Dibuja una torre usando su sprite correspondiente"""
         x = self.x + col * self.cell_size + self.cell_size // 2
         y = self.y + row * self.cell_size + self.cell_size // 2
         
-        radius = 20
-        canvas.create_oval(
-            x - radius, y - radius,
-            x + radius, y + radius,
-            fill=torre.color,
-            outline='#333333',
-            width=2
-        )
+        # Obtener el sprite de la torre según su tipo
+        sprite_img = None
+        if hasattr(self.sprite_manager, 'torres') and torre.tipo in self.sprite_manager.torres:
+            sprite_img = self.sprite_manager.torres[torre.tipo]
         
-        canvas.create_text(
-            x, y - 3,
-            text=torre.icono,
-            font=("Arial", 18)
-        )
+        if sprite_img:
+            # Dibujar el sprite de la torre
+            photo = ImageTk.PhotoImage(sprite_img, master=canvas)
+            # Guardar referencia para evitar que se borre
+            if not hasattr(self.sprite_manager, 'photo_images_torres'):
+                self.sprite_manager.photo_images_torres = {}
+            self.sprite_manager.photo_images_torres[f'torre_{row}_{col}'] = photo
+            
+            canvas.create_image(x, y, image=photo, tags=f"torre_{row}_{col}")
+        else:
+            # Si no hay sprite, dibujar representación simple con ícono
+            radius = 20
+            canvas.create_oval(
+                x - radius, y - radius,
+                x + radius, y + radius,
+                fill=torre.color,
+                outline='#333333',
+                width=2
+            )
+            
+            canvas.create_text(
+                x, y - 3,
+                text=torre.icono,
+                font=("Arial", 18)
+            )
         
+        # Barra de vida
         vida_percent = torre.vida_actual / torre.vida_maxima
         bar_width = 30
         bar_height = 4
         bar_x = x - bar_width // 2
-        bar_y = y + radius + 3
+        bar_y = y + 25  # Un poco más abajo para no tapar el sprite
         
         canvas.create_rectangle(
             bar_x, bar_y,
@@ -1141,9 +1335,9 @@ class VillageGame(tk.Frame):
         torres_a_eliminar = []
         for pos, torre in self.grid.torres_grid.items():
             if not torre.activa:
-                # CRÍTICO: Desactivar todos los proyectiles de esta torre
+                # CRÍTICO: Desactivar todos los proyectiles de esta torre (sin sonido)
                 for proyectil in torre.proyectiles:
-                    proyectil.desactivar()
+                    proyectil.desactivar(por_impacto=False)  # ✅ Sin sonido al destruir torre
                 torre.proyectiles.clear()
                 torres_a_eliminar.append(pos)
         
