@@ -713,9 +713,11 @@ class LoginApp:
     def abrir_principal(self, usuario):
         from VentanaPrincipal import VillageGameWindow as VP
         VentanaClase = VP
-        VentanaClase()
-        # destruir registro con un pequeño delay para dejar que se procesen 'after' pendientes
+        # ⬇️ Pasar el username al juego
+        VentanaClase(current_username=usuario)
+        # cerrar login después de lanzar la ventana principal
         self.root.after(50, self.root.destroy)
+
 
 
     def verificar_login(self):

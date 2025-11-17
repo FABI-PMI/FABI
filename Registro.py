@@ -620,20 +620,41 @@ class Registro:
             self.frame_paso2.pack(fill=tk.BOTH, expand=True)
     
     def volver_a_login(self):
+        """Vuelve al login usando Toplevel"""
         from Login import LoginApp
-        ventana = tk.Tk()
-        LoginApp(ventana)
-        # destruir registro con un pequeño delay para dejar que se procesen 'after' pendientes
-        self.root.after(50, self.root.destroy)
-        ventana.mainloop()
+        ventana = tk.Toplevel()
+        try:
+            LoginApp(ventana)
+        except Exception as e:
+            ventana.destroy()
+            messagebox.showerror('Error', f'No se pudo abrir Login: {e}')
+            return
+        # Ocultar registro
+        self.root.withdraw()
+        # Cuando se cierre login, cerrar todo
+        ventana.protocol("WM_DELETE_WINDOW", lambda: [ventana.destroy(), self.root.destroy()])
 
     def volver_a_personalizacion(self):
+        """Abre personalización correctamente sin crear nuevo root"""
         from ventana_personalizacion import ColorSelectorApp
-        ventana = tk.Tk()
-        ColorSelectorApp(ventana)
-        # destruir registro con un pequeño delay para dejar que se procesen 'after' pendientes
-        self.root.after(50, self.root.destroy)
-        ventana.mainloop()
+        
+        # ✅ Usar Toplevel en lugar de nuevo Tk()
+        ventana = tk.Toplevel()
+        ventana.title("Personalización")
+        
+        try:
+            ColorSelectorApp(ventana)
+        except Exception as e:
+            messagebox.showerror('Error', f'No se pudo abrir Personalización: {e}')
+            ventana.destroy()
+            self.root.deiconify()  # Volver a mostrar registro si falla
+            return
+        
+        # Ocultar registro (NO destruir aún)
+        self.root.withdraw()
+        
+        # Cuando se cierre personalización, cerrar todo
+        ventana.protocol("WM_DELETE_WINDOW", lambda: [ventana.destroy(), self.root.destroy()])
     
     def activar_face_recognition(self):
         """Activa el reconocimiento facial"""
@@ -764,8 +785,7 @@ class Registro:
             traceback.print_exc()
             return None
     
-    \
-def ir_a_ventana2(self):
+    def ir_a_ventana2(self):
         # Validaciones
         if not self.var_nombre.get().strip():
             # Fallback: si el StringVar no se actualizó, intenta leer del Entry y sincronizarlo
@@ -841,6 +861,7 @@ def ir_a_ventana2(self):
     
     def volver_a_paso1(self):
         self.mostrar_paso(1)
+        
     def _circularize(self, img, size=(100, 100)):
         """Devuelve la imagen recortada en círculo con alfa."""
         img = img.convert('RGBA').resize(size, Image.LANCZOS)
@@ -900,16 +921,15 @@ def ir_a_ventana2(self):
         tarjeta = self.var_tarjeta.get()
         es_premium = tarjeta and tarjeta != "1234 5678 9012 3456" and len(tarjeta) > 10
         
-        # Crear usuario (SIN GUARDAR DATOS NUMPY - solo referencias)
+        # Crear usuario
         username = self.var_username.get().strip()
-                # Codificar foto de perfil en base64 (PNG con transparencia) si se seleccionó
-                # Vincular FaceID si existe el archivo aunque no se haya re-capturado en esta sesión
+        
+        # Vincular FaceID si existe el archivo
         if not self.face_id_registered:
             ruta = buscar_face_file(username)
             if ruta:
                 self.face_id_registered = True
                 self.face_id_filename = ruta
-                # (opcional) actualiza UI en esta pantalla:
                 self._sincronizar_face_id_con_archivo(username, actualizar_ui=True)
 
         avatar_b64 = ''
@@ -934,9 +954,10 @@ def ir_a_ventana2(self):
             'es_premium': bool(es_premium),
             'tarjeta': tarjeta if es_premium else "",
             'face_id': self.face_id_registered,
-            'face_id_file': self.face_id_filename if self.face_id_registered else None,  # Solo el nombre del archivo
+            'face_id_file': self.face_id_filename if self.face_id_registered else None,
             'foto_perfil_b64': avatar_b64,
-            'fecha_registro': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'fecha_registro': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'pts': 100
         }
         
         # Cargar usuarios existentes
@@ -963,7 +984,7 @@ def ir_a_ventana2(self):
                 f"\n¡Gracias por unirte! 🎮"
             )
             
-            # Cerrar registro y abrir login
+            # ✅ Abrir personalización
             self.volver_a_personalizacion()
         else:
             messagebox.showerror("Error", "No se pudo guardar el usuario")

@@ -6,46 +6,18 @@ VERSION CON SPRITES ANIMADOS: Los avatares alternan entre imagenes de paso
 VERSION CON SONIDO: Las torres reproducen sonidos al impactar
 """
 import io, base64
+from ptsSalon import pts as pts_salon
+from ventana_personalizacion import get_popularidad
+from bpm_live import get_bpm_snapshot
+from Login import cargar_usuarios, guardar_usuarios
+from PIL import Image, ImageTk
 import os
+
 import tkinter as tk
 from tkinter import Canvas, messagebox
 import random
 import time
 import threading
-from PIL import Image, ImageTk
-
-# Importaciones con manejo de errores
-try:
-    from ptsSalon import pts as pts_salon
-except ImportError:
-    print("⚠️ No se pudo importar ptsSalon, usando valores por defecto")
-    def pts_salon(*args, **kwargs):
-        return 0
-
-try:
-    from ventana_personalizacion import get_popularidad
-except (ImportError, AttributeError) as e:
-    print(f"⚠️ No se pudo importar get_popularidad: {e}")
-    print("   Usando función por defecto")
-    def get_popularidad(*args, **kwargs):
-        return 50  # Valor por defecto
-
-try:
-    from bpm_live import get_bpm_snapshot
-except ImportError:
-    print("⚠️ No se pudo importar get_bpm_snapshot, usando valores por defecto")
-    def get_bpm_snapshot():
-        return 60
-
-try:
-    from Login import cargar_usuarios, guardar_usuarios
-except ImportError:
-    print("⚠️ No se pudo importar Login, usando funciones por defecto")
-    def cargar_usuarios():
-        return {}
-    def guardar_usuarios(*args, **kwargs):
-        pass
-
 from RooksClass import RookArena, RookRoca, RookAgua, RookFuego, GestorRooks
 from AvatarClass import GestorAvatares
 from MoneySystem import SistemaPuntos, SistemaMonedas
