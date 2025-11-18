@@ -1247,7 +1247,7 @@ class ColorSelectorApp:
             from Menu import Menu
             
             # Detener música si está reproduciéndose
-            self._stop_music()
+            #self._stop_music()
             
             # Ocultar ventana de personalización
             self.root.withdraw()
