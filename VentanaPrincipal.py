@@ -771,6 +771,50 @@ class Grid:
         
         # Sistema de animaciones de colision
         self.colisiones_activas = []
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # SISTEMA DE IMÁGENES DE MONEDAS
+        # ═══════════════════════════════════════════════════════════════════════
+        self.moneda_images = {}
+        self.cargar_imagenes_monedas()
+    
+    def cargar_imagenes_monedas(self):
+        """Carga y cachea las imágenes de las monedas"""
+        from PIL import Image, ImageTk
+        import os
+        
+        # Mapeo de valores a archivos de imagen
+        valores_monedas = [10, 20, 30, 50]
+        
+        for valor in valores_monedas:
+            archivo = f"{valor}.png"
+            if os.path.exists(archivo):
+                try:
+                    # Cargar imagen
+                    img = Image.open(archivo)
+                    # Redimensionar según el tamaño de la moneda
+                    # Las monedas más valiosas son un poco más grandes
+                    if valor == 10:
+                        size = 30
+                    elif valor == 20:
+                        size = 36
+                    elif valor == 30:
+                        size = 40
+                    else:  # 50
+                        size = 44
+                    
+                    img = img.resize((size, size), Image.Resampling.LANCZOS)
+                    # Convertir a PhotoImage
+                    photo = ImageTk.PhotoImage(img)
+                    self.moneda_images[valor] = photo
+                    print(f"✅ Imagen de moneda cargada: ${valor}")
+                except Exception as e:
+                    print(f"⚠️ Error cargando imagen {archivo}: {e}")
+            else:
+                print(f"⚠️ Archivo no encontrado: {archivo}")
+        
+        if not self.moneda_images:
+            print("⚠️ No se cargaron imágenes de monedas, se usarán emojis")
     
     def agregar_colision(self, x, y):
         """Agrega una nueva animacion de colision"""
@@ -1004,29 +1048,39 @@ class Grid:
                     )
     
     def draw_monedas(self, canvas, monedas):
-        """Dibuja las monedas activas"""
+        """Dibuja las monedas activas usando imágenes"""
         for moneda in monedas:
             if moneda.activa:
                 col, row = moneda.posicion
                 x = self.x + col * self.cell_size + self.cell_size // 2
                 y = self.y + row * self.cell_size + self.cell_size // 2
                 
-                size = moneda.get_size()
-                canvas.create_oval(
-                    x - size, y - size,
-                    x + size, y + size,
-                    fill=moneda.get_color(),
-                    outline='#000000',
-                    width=2,
-                    tags="moneda"
-                )
-                
-                canvas.create_text(
-                    x, y,
-                    text=moneda.get_icono(),
-                    font=("Arial", 14),
-                    tags="moneda"
-                )
+                # Intentar usar imagen primero
+                if moneda.valor in self.moneda_images:
+                    # Usar imagen de moneda
+                    canvas.create_image(
+                        x, y,
+                        image=self.moneda_images[moneda.valor],
+                        tags="moneda"
+                    )
+                else:
+                    # Fallback: usar el sistema antiguo con emojis
+                    size = moneda.get_size()
+                    canvas.create_oval(
+                        x - size, y - size,
+                        x + size, y + size,
+                        fill=moneda.get_color(),
+                        outline='#000000',
+                        width=2,
+                        tags="moneda"
+                    )
+                    
+                    canvas.create_text(
+                        x, y,
+                        text=moneda.get_icono(),
+                        font=("Arial", 14),
+                        tags="moneda"
+                    )
     
     def get_cell_from_coords(self, x, y):
         if x < self.x or x > self.x + self.width:
@@ -1075,6 +1129,14 @@ class VillageGame(tk.Frame):
         self.juego_terminado = False
         self.tiempo_inicio_juego = None
         self.ultimo_tiempo = time.time()
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # CONTROLES DE TECLADO
+        # ═══════════════════════════════════════════════════════════════════════
+        self.cursor_fila = 4  # Centro del grid (9 filas -> índice 4)
+        self.cursor_columna = 2  # Centro del grid (5 columnas -> índice 2)
+        self.modo_menu = False  # Si está en modo navegación de botones
+        self.boton_seleccionado = 0  # Índice del botón seleccionado en modo menú
         
         # Cache para evitar calcular popularidad/tempo en cada frame
         self.ultimo_calculo_stats = 0
@@ -1133,6 +1195,12 @@ class VillageGame(tk.Frame):
             self.element_buttons.append(ElementButton(element_x, element_y, element, self.palette, self))
         
         self.canvas.bind("<Button-1>", self.on_canvas_click)
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # BIND DE CONTROLES DE TECLADO
+        # ═══════════════════════════════════════════════════════════════════════
+        self.canvas.bind("<KeyPress>", self.on_key_press)
+        self.canvas.focus_set()  # Permitir que el canvas reciba eventos de teclado
         
         if self.frecuencias:
             self.gestor_rooks.actualizar_frecuencias(self.frecuencias)
@@ -1216,6 +1284,93 @@ class VillageGame(tk.Frame):
 
         for element_btn in self.element_buttons:
             element_btn.draw(self.canvas)
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # INDICADOR VISUAL DEL CURSOR DE TECLADO
+        # ═══════════════════════════════════════════════════════════════════════
+        if not self.modo_menu:
+            # Calcular posición del cursor en píxeles
+            cursor_x = self.grid_x + self.cursor_columna * self.cell_size
+            cursor_y = 100 + self.cursor_fila * self.cell_size
+            
+            # Dibujar rectángulo resaltado en la celda del cursor (borde grueso cyan)
+            self.canvas.create_rectangle(
+                cursor_x, cursor_y,
+                cursor_x + self.cell_size, cursor_y + self.cell_size,
+                outline='#00FFFF',  # Cyan brillante
+                width=4,
+                tags="cursor"
+            )
+            
+            # Dibujar un pequeño indicador en el centro de la celda
+            center_x = cursor_x + self.cell_size // 2
+            center_y = cursor_y + self.cell_size // 2
+            
+            # Círculo pequeño en el centro
+            self.canvas.create_oval(
+                center_x - 5, center_y - 5,
+                center_x + 5, center_y + 5,
+                fill='#00FFFF',
+                outline='#FFFFFF',
+                width=2,
+                tags="cursor"
+            )
+        
+        # Indicador de modo menú
+        if self.modo_menu:
+            # Resaltar el botón seleccionado en modo menú
+            if self.boton_seleccionado == 0:
+                # Resaltar botón Salón de Fama (izquierda)
+                # El botón está en self.btn_salon_fama
+                # Posición aproximada: x=70, y=115
+                x_center = 70
+                y_center = 115
+                box_width = self.top_right_btn.width + 40
+                box_height = self.top_right_btn.height
+                
+                x1 = x_center - box_width // 2 - 5
+                y1 = y_center - box_height // 2 - 5
+                x2 = x_center + box_width // 2 + 5
+                y2 = y_center + box_height // 2 + 5
+                
+                self.canvas.create_rectangle(
+                    x1, y1, x2, y2,
+                    outline='#FFFF00',
+                    width=4,
+                    tags="menu_selection"
+                )
+                
+            elif self.boton_seleccionado == 1:
+                # Resaltar botón START (derecha)
+                if self.top_right_btn.visible:
+                    x1 = self.top_right_btn.x - self.top_right_btn.width // 2 - 5
+                    y1 = self.top_right_btn.y - self.top_right_btn.height // 2 - 5
+                    x2 = self.top_right_btn.x + self.top_right_btn.width // 2 + 5
+                    y2 = self.top_right_btn.y + self.top_right_btn.height // 2 + 5
+                    self.canvas.create_rectangle(
+                        x1, y1, x2, y2,
+                        outline='#FFFF00',
+                        width=4,
+                        tags="menu_selection"
+                    )
+            
+            # Mostrar texto de modo menú
+            self.canvas.create_text(
+                self.width // 2, 680,
+                text="🎮 MODO MENÚ: A ← Salón | START → D | ENTER: Activar | W/S: Salir",
+                font=("Arial", 9, "bold"),
+                fill="#FFFF00",
+                tags="menu_mode"
+            )
+        else:
+            # Mostrar controles cuando no está en modo menú
+            self.canvas.create_text(
+                self.width // 2, 680,
+                text="⌨️ WASD: Mover | 1-4: Torre | Enter: Colocar | H: Dinero | G: Disparar | Tab: Menú",
+                font=("Arial", 9, "bold"),
+                fill="#AAAAAA",
+                tags="keyboard_hints"
+            )
         
         # Mostrar stats durante el juego
         if self.juego_activo:
@@ -1510,6 +1665,179 @@ class VillageGame(tk.Frame):
             if x1 <= event.x <= x2 and y1 <= event.y <= y2:
                 self.on_top_right_button_pressed()
     
+    def on_key_press(self, event):
+        """
+        Maneja todos los controles de teclado del juego.
+        
+        Controles:
+        - WASD: Mover cursor por el grid
+        - 1, 2, 3, 4: Seleccionar tipo de torre
+        - Enter: Colocar torre / Activar botón en modo menú
+        - H: Recoger dinero de la casilla actual
+        - G: Disparar manualmente la torre en la posición actual
+        - Tab: Cambiar entre modo juego y modo menú
+        """
+        if self.juego_terminado:
+            return
+        
+        tecla = event.keysym.lower()
+        
+        # TAB: Cambiar entre modo juego y modo menú
+        if tecla == 'tab':
+            self.modo_menu = not self.modo_menu
+            if self.modo_menu:
+                self.boton_seleccionado = 0  # 0 = Salón de Fama, 1 = START
+                print("🎮 Modo Menú activado")
+                print("   A: Salón de Fama | D: START | ENTER: Seleccionar | W/S: Volver")
+            else:
+                print("🎮 Modo Juego activado - Usa WASD para moverte")
+            self.draw()
+            return
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # MODO MENÚ: Solo Salón de Fama y START
+        # ═══════════════════════════════════════════════════════════════════════
+        if self.modo_menu:
+            # W o S: Salir del modo menú
+            if tecla in ['w', 's']:
+                self.modo_menu = False
+                print("🎮 Modo Juego activado - Usa WASD para moverte")
+                self.draw()
+                return
+            
+            # A: Ir a Salón de Fama (izquierda)
+            elif tecla == 'a':
+                self.boton_seleccionado = 0  # Salón de Fama
+                print("📍 Salón de Fama seleccionado")
+                self.draw()
+            
+            # D: Ir a START (derecha)
+            elif tecla == 'd':
+                self.boton_seleccionado = 1  # START
+                print("📍 START seleccionado")
+                self.draw()
+            
+            # ENTER: Activar botón seleccionado
+            elif tecla == 'return':
+                if self.boton_seleccionado == 0:
+                    # Salón de Fama
+                    print("🏆 Abriendo Salón de la Fama...")
+                    self.abrir_salon_de_la_fama()
+                    self.modo_menu = False
+                elif self.boton_seleccionado == 1:
+                    # START
+                    if self.top_right_btn.visible:
+                        print("▶️ Iniciando juego desde teclado...")
+                        self.on_top_right_button_pressed()
+                        self.modo_menu = False
+                    else:
+                        print("⚠️ El juego ya está en marcha")
+                self.draw()
+            
+            return  # En modo menú, no procesar otros controles
+        
+        # ═══════════════════════════════════════════════════════════════════════
+        # MODO JUEGO: Movimiento del cursor y acciones
+        # ═══════════════════════════════════════════════════════════════════════
+        
+        # WASD: Movimiento del cursor
+        if tecla == 'w':  # Arriba
+            if self.cursor_fila > 0:
+                self.cursor_fila -= 1
+                print(f"⬆️ Cursor: ({self.cursor_columna}, {self.cursor_fila})")
+                self.draw()
+        
+        elif tecla == 's':  # Abajo
+            if self.cursor_fila < self.grid_rows - 1:
+                self.cursor_fila += 1
+                print(f"⬇️ Cursor: ({self.cursor_columna}, {self.cursor_fila})")
+                self.draw()
+        
+        elif tecla == 'a':  # Izquierda
+            if self.cursor_columna > 0:
+                self.cursor_columna -= 1
+                print(f"⬅️ Cursor: ({self.cursor_columna}, {self.cursor_fila})")
+                self.draw()
+        
+        elif tecla == 'd':  # Derecha
+            if self.cursor_columna < self.grid_cols - 1:
+                self.cursor_columna += 1
+                print(f"➡️ Cursor: ({self.cursor_columna}, {self.cursor_fila})")
+                self.draw()
+        
+        # 1, 2, 3, 4: Seleccionar tipo de torre
+        elif tecla in ['1', '2', '3', '4']:
+            tipo_index = int(tecla) - 1
+            if tipo_index < len(self.element_buttons):
+                print(f"🎯 Seleccionando torre tipo {tecla}...")
+                self.element_buttons[tipo_index].on_click()
+                self.draw()
+        
+        # ENTER: Colocar torre en la posición del cursor
+        elif tecla == 'return':
+            if self.esperando_colocacion:
+                row, col = self.cursor_fila, self.cursor_columna
+                if (row, col) not in self.grid.torres_grid:
+                    print(f"🏰 Colocando torre en ({col}, {row})...")
+                    self.colocar_torre(row, col)
+                else:
+                    print(f"❌ Ya hay una torre en ({col}, {row})")
+                    messagebox.showinfo("Celda ocupada", "Ya hay una torre aqui")
+            else:
+                print("⚠️ No hay torre seleccionada. Presiona 1, 2, 3 o 4 primero")
+        
+        # H: Recoger dinero
+        elif tecla == 'h':
+            if self.juego_activo and not self.esperando_colocacion:
+                row, col = self.cursor_fila, self.cursor_columna
+                dinero = self.sistema_monedas.intentar_recolectar(col, row)
+                if dinero > 0:
+                    self.presupuesto += dinero
+                    print(f"💰 Recogiste ${dinero}! Presupuesto: ${self.presupuesto}")
+                    self.draw()
+                else:
+                    print(f"❌ No hay dinero en ({col}, {row})")
+        
+        # G: Disparar manualmente
+        elif tecla == 'g':
+            if self.juego_activo:
+                row, col = self.cursor_fila, self.cursor_columna
+                # Buscar si hay una torre en esta posición
+                if (row, col) in self.grid.torres_grid:
+                    torre = self.grid.torres_grid[(row, col)]
+                    
+                    # DISPARO MANUAL FORZADO - SIEMPRE DISPARA
+                    try:
+                        # Calcular posición de la torre en píxeles
+                        posicion_torre = [
+                            self.grid_x + col * self.cell_size + self.cell_size // 2,
+                            100 + row * self.cell_size + self.cell_size // 2
+                        ]
+                        
+                        tiempo_actual = time.time()
+                        
+                        # ✅ FORZAR DISPARO: Resetear cooldown ANTES de disparar
+                        if hasattr(torre, 'ultimo_disparo'):
+                            # Resetear cooldown para forzar disparo inmediato
+                            torre.ultimo_disparo = 0
+                        
+                        # Ahora disparar (cooldown está reseteado, SIEMPRE dispara)
+                        if hasattr(torre, 'disparar'):
+                            proyectil = torre.disparar(tiempo_actual, posicion_torre)
+                            if proyectil:
+                                print(f"💥 ¡Torre en ({col}, {row}) DISPARÓ!")
+                            else:
+                                # Si retorna None, la torre está muerta
+                                print(f"⚠️ Torre en ({col}, {row}) está destruida")
+                        else:
+                            print(f"⚠️ Torre en ({col}, {row}) no tiene método disparar")
+                            
+                    except Exception as e:
+                        print(f"⚠️ Error al disparar: {e}")
+                        print(f"   Tipo de torre: {type(torre)}")
+                else:
+                    print(f"❌ No hay torre en ({col}, {row})")
+    
     def colocar_torre(self, row, col):
         if self.torre_a_colocar and self.presupuesto >= self.torre_a_colocar['price']:
             mapeo_frecuencias = {
@@ -1678,9 +2006,9 @@ class VillageGameWindow:
 
 if __name__ == "__main__":
     frecuencias_prueba = {
-        "⛰️  TORRE DE ARENA": 3,
-        "🪨  TORRE DE ROCA": 4,
-        "💧 TORRE DE AGUA": 2,
+        "⛰️ TORRE DE ARENA": 3,
+        "🪨 TORRE DE ROCA": 4,
+        "💧 TORRE DE AGUA": 2, 
         "🔥 TORRE DE FUEGO": 5
     }
     game_window = VillageGameWindow(nivel="DIFICIL", frecuencias=frecuencias_prueba)
