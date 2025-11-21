@@ -50,6 +50,18 @@ from RooksClass import RookArena, RookRoca, RookAgua, RookFuego, GestorRooks
 from AvatarClass import GestorAvatares
 from MoneySystem import SistemaPuntos, SistemaMonedas
 
+# Importar adaptador de control (opcional, con fallback)
+try:
+    from Controladapter import ControlAdapter, ControlState
+    CONTROL_DISPONIBLE = True
+    print("✅ Módulo de control importado correctamente")
+except ImportError as e:
+    print(f"⚠️ No se pudo importar ControlAdapter: {e}")
+    print("   El juego funcionará solo con teclado/ratón")
+    CONTROL_DISPONIBLE = False
+    ControlAdapter = None
+    ControlState = None
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SISTEMA DE SONIDO PARA TORRES
@@ -701,6 +713,8 @@ class ElementButton:
         self.palette = palette
         self.game = game
         self.size = 50
+        self.selected = False  # Si está seleccionada
+        self.affordable = True  # Si se puede pagar
         
         self.config = {
             'sand': {'color': '#DEB887', 'icon': '⛰️', 'name': 'Arena', 'price': 100, 'class': RookArena},
@@ -710,47 +724,103 @@ class ElementButton:
         }
     
     def draw(self, canvas):
+        """Dibuja el botón con indicadores visuales mejorados"""
         cfg = self.config[self.element_type]
         half = self.size // 2
         
+        # Actualizar si se puede pagar
+        self.affordable = self.game.presupuesto >= cfg['price']
+        
+        # Determinar colores según estado
+        if not self.affordable:
+            # No se puede pagar - Gris oscuro con borde rojo
+            bg_color = '#404040'
+            border_color = '#FF0000'
+            border_width = 3
+            text_color = '#FF6666'
+        elif self.selected:
+            # Seleccionada - Borde verde brillante y fondo más claro
+            bg_color = cfg['color']
+            border_color = '#00FF00'
+            border_width = 4
+            text_color = 'white'
+        else:
+            # Normal - Color original
+            bg_color = cfg['color']
+            border_color = '#333333'
+            border_width = 2
+            text_color = 'white'
+        
+        # Rectángulo principal
         canvas.create_rectangle(
             self.x - half, self.y - half,
             self.x + half, self.y + half,
-            fill=cfg['color'],
-            outline='#333333',
-            width=2
+            fill=bg_color,
+            outline=border_color,
+            width=border_width
         )
         
+        # Si está seleccionada, agregar un brillo interno
+        if self.selected:
+            canvas.create_rectangle(
+                self.x - half + 3, self.y - half + 3,
+                self.x + half - 3, self.y + half - 3,
+                fill='',
+                outline='#90EE90',
+                width=2
+            )
+        
+        # Icono
         canvas.create_text(
             self.x, self.y - 5,
             text=cfg['icon'],
             font=("Arial", 20)
         )
         
+        # Precio con color según estado
         canvas.create_text(
             self.x, self.y + 15,
             text=f"${cfg['price']}",
             font=("Arial", 9, "bold"),
-            fill="white"
+            fill=text_color
         )
-    
+        
+        # Si no se puede pagar, mostrar X roja
+        if not self.affordable:
+            canvas.create_text(
+                self.x - half + 8, self.y - half + 8,
+                text="✗",
+                font=("Arial", 12, "bold"),
+                fill="#FF0000"
+            )
+
     def is_clicked(self, x, y):
         half = self.size // 2
         return (self.x - half <= x <= self.x + half and 
                 self.y - half <= y <= self.y + half)
     
     def on_click(self):
+        """Maneja el click en el botón"""
         cfg = self.config[self.element_type]
         
         if self.game.presupuesto >= cfg['price']:
-            print(f"💰 Seleccionaste Torre de {cfg['name']} (${cfg['price']})")
+            # Puede pagar - seleccionar
+            print(f"🎯 Torre de {cfg['name']} seleccionada (${cfg['price']})")
+            
+            # Deseleccionar otros botones
+            for btn in self.game.element_buttons:
+                btn.selected = False
+            
+            # Seleccionar este
+            self.selected = True
             self.game.esperando_colocacion = self.element_type
             self.game.torre_a_colocar = cfg
+            self.game.draw()  # Redibujar para mostrar selección
         else:
-            messagebox.showwarning("Sin presupuesto", 
-                f"Necesitas ${cfg['price']} para Torre de {cfg['name']}\n" +
-                f"Tu presupuesto: ${self.game.presupuesto}")
-
+            # No puede pagar - solo mensaje en consola (sin popup molesto)
+            faltante = cfg['price'] - self.game.presupuesto
+            print(f"❌ Presupuesto insuficiente para {cfg['name']}")
+            print(f"   Necesitas: ${cfg['price']} | Tienes: ${self.game.presupuesto} | Faltan: ${faltante}")
 
 class Grid:
     """Cuadricula del juego"""
@@ -1137,6 +1207,18 @@ class VillageGame(tk.Frame):
         self.cursor_columna = 2  # Centro del grid (5 columnas -> índice 2)
         self.modo_menu = False  # Si está en modo navegación de botones
         self.boton_seleccionado = 0  # Índice del botón seleccionado en modo menú
+
+        # ═══════════════════════════════════════════════════════════════════════
+        # CONTROL INALÁMBRICO (Raspberry Pi Pico W)
+        # ═══════════════════════════════════════════════════════════════════════
+        self.control_adapter = None
+        self.control_conectado = False
+        self.control_habilitado = CONTROL_DISPONIBLE  # Si el módulo está disponible
+        
+        # Variables para control de movimiento del joystick
+        self.ultimo_movimiento_joystick = 0
+        self.intervalo_movimiento = 0.2  # Segundos entre movimientos
+
         
         # Cache para evitar calcular popularidad/tempo en cada frame
         self.ultimo_calculo_stats = 0
@@ -1218,6 +1300,9 @@ class VillageGame(tk.Frame):
             pady=10
         )
 
+        if self.control_habilitado:
+            self.after(100, self._conectar_control_inicial)
+        
         self.draw()
         self.animate()
     
@@ -1245,6 +1330,237 @@ class VillageGame(tk.Frame):
             tags="zones"
         )
     
+    
+    def draw_control_icon(self):
+        """Dibuja un icono de gamepad/control mejorado"""
+        if not self.control_habilitado:
+            return
+        
+        # Posición: a la izquierda del icono de moneda
+        icon_x = self.width - 80
+        icon_y = 30
+        
+        # Color según estado
+        if self.control_conectado:
+            # Conectado: Gamepad verde con brillo
+            body_color = "#4CAF50"      # Verde
+            accent_color = "#66BB6A"    # Verde claro
+            shadow_color = "#2E7D32"    # Verde oscuro
+            dot_color = "#00FF00"       # Verde brillante
+        else:
+            # Desconectado: Gamepad gris
+            body_color = "#757575"      # Gris
+            accent_color = "#9E9E9E"    # Gris claro
+            shadow_color = "#424242"    # Gris oscuro
+            dot_color = "#BDBDBD"       # Gris claro
+        
+        # Sombra del gamepad
+        self.canvas.create_oval(
+            icon_x - 14, icon_y - 9,
+            icon_x + 14, icon_y + 11,
+            fill=shadow_color, outline=""
+        )
+        
+        # Cuerpo principal del gamepad
+        self.canvas.create_oval(
+            icon_x - 15, icon_y - 10,
+            icon_x + 15, icon_y + 10,
+            fill=body_color, outline=accent_color, width=2
+        )
+        
+        # D-Pad (izquierda)
+        dpad_x = icon_x - 8
+        dpad_y = icon_y
+        dpad_size = 2
+        
+        # D-Pad vertical
+        self.canvas.create_rectangle(
+            dpad_x - 1, dpad_y - dpad_size - 1,
+            dpad_x + 1, dpad_y + dpad_size + 1,
+            fill=accent_color, outline=""
+        )
+        # D-Pad horizontal
+        self.canvas.create_rectangle(
+            dpad_x - dpad_size - 1, dpad_y - 1,
+            dpad_x + dpad_size + 1, dpad_y + 1,
+            fill=accent_color, outline=""
+        )
+        
+        # Botones (derecha) - 4 botones en rombo
+        btn_x = icon_x + 8
+        btn_y = icon_y
+        btn_radius = 1.5
+        
+        # Botón arriba
+        self.canvas.create_oval(
+            btn_x - btn_radius, btn_y - 4 - btn_radius,
+            btn_x + btn_radius, btn_y - 4 + btn_radius,
+            fill=accent_color, outline=""
+        )
+        # Botón abajo
+        self.canvas.create_oval(
+            btn_x - btn_radius, btn_y + 4 - btn_radius,
+            btn_x + btn_radius, btn_y + 4 + btn_radius,
+            fill=accent_color, outline=""
+        )
+        # Botón izquierda
+        self.canvas.create_oval(
+            btn_x - 4 - btn_radius, btn_y - btn_radius,
+            btn_x - 4 + btn_radius, btn_y + btn_radius,
+            fill=accent_color, outline=""
+        )
+        # Botón derecha
+        self.canvas.create_oval(
+            btn_x + 4 - btn_radius, btn_y - btn_radius,
+            btn_x + 4 + btn_radius, btn_y + btn_radius,
+            fill=accent_color, outline=""
+        )
+        
+        # Joysticks (dos pequeños círculos)
+        # Joystick izquierdo
+        self.canvas.create_oval(
+            icon_x - 6, icon_y + 4,
+            icon_x - 2, icon_y + 8,
+            fill=shadow_color, outline=""
+        )
+        # Joystick derecho
+        self.canvas.create_oval(
+            icon_x + 2, icon_y + 4,
+            icon_x + 6, icon_y + 8,
+            fill=shadow_color, outline=""
+        )
+        
+        # Indicador de conexión (LED)
+        if self.control_conectado:
+            # LED verde brillante cuando conectado
+            self.canvas.create_oval(
+                icon_x - 2, icon_y - 7,
+                icon_x + 2, icon_y - 3,
+                fill=dot_color, outline=""
+            )
+            # Brillo del LED
+            self.canvas.create_oval(
+                icon_x - 1, icon_y - 6,
+                icon_x + 1, icon_y - 4,
+                fill="#FFFFFF", outline=""
+            )
+
+    def _conectar_control_inicial(self):
+        """Intenta conectar el control al iniciar"""
+        if self.control_conectado:
+            return
+        
+        print("🔌 Intentando conectar control...")
+        
+        import threading
+        def conectar_async():
+            try:
+                # Conectar en thread secundario
+                exito = self.conectar_control()
+                # NO usar self.after desde el thread - solo print directo
+                if not exito:
+                    print("⚠️ Control no disponible - usando mouse/teclado")
+            except Exception as e:
+                # NO usar self.after desde el thread
+                print(f"❌ Error conectando control: {e}")
+        
+        thread = threading.Thread(target=conectar_async, daemon=True)
+        thread.start()
+
+    def conectar_control(self):
+        """Conecta con el control"""
+        if not self.control_habilitado:
+            return False
+        
+        if self.control_adapter and self.control_adapter.is_connected():
+            return True
+        
+        try:
+            self.control_adapter = ControlAdapter()
+            self.control_adapter.on_state_update = self._on_control_update
+            conectado = self.control_adapter.connect()
+            
+            if conectado:
+                self.control_conectado = True
+                # Llamar draw en el main thread de forma segura
+                try:
+                    self.after_idle(self.draw)
+                except:
+                    pass  # Si falla, draw se llamará en el próximo frame
+                return True
+            return False
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            return False
+    
+    def _on_control_update(self, state):
+        """Callback del control"""
+        # Control funciona siempre, no solo cuando juego_activo
+        # if not self.juego_activo:
+        #     return
+        
+        t = time.time()
+        if t - self.ultimo_movimiento_joystick >= self.intervalo_movimiento:
+            if state.joystick_dir != "neutro":
+                self._mover_cursor_control(state.joystick_dir)
+                self.ultimo_movimiento_joystick = t
+                self.after(0, self.draw)
+        
+        if state.get_button_press("joystick"):
+            self.after(0, self._colocar_torre_control)
+        if state.get_button_press("a"):
+            self.after(0, self._recoger_todas_monedas)
+        if state.get_button_press("c"):
+            self.after(0, lambda: self._seleccionar_torre_control("sand"))
+        if state.get_button_press("d"):
+            self.after(0, lambda: self._seleccionar_torre_control("rock"))
+        if state.get_button_press("e"):
+            self.after(0, lambda: self._seleccionar_torre_control("water"))
+        if state.get_button_press("f"):
+            self.after(0, lambda: self._seleccionar_torre_control("fire"))
+    
+    def _mover_cursor_control(self, dir):
+        """Mueve cursor"""
+        if dir == "arriba" and self.cursor_fila > 0:
+            self.cursor_fila -= 1
+        elif dir == "abajo" and self.cursor_fila < self.grid_rows - 1:
+            self.cursor_fila += 1
+        elif dir == "izquierda" and self.cursor_columna > 0:
+            self.cursor_columna -= 1
+        elif dir == "derecha" and self.cursor_columna < self.grid_cols - 1:
+            self.cursor_columna += 1
+    
+    def _seleccionar_torre_control(self, tipo):
+        """Selecciona torre"""
+        for btn in self.element_buttons:
+            if btn.element_type == tipo:
+                btn.on_click()
+                self.draw()
+                break
+    
+    def _colocar_torre_control(self):
+        """Coloca torre"""
+        if self.esperando_colocacion and self.torre_a_colocar:
+            self.colocar_torre(self.cursor_fila, self.cursor_columna)
+    
+    def _recoger_todas_monedas(self):
+        """Recoge todas las monedas del tablero con botón A"""
+        monedas_recogidas = 0
+        dinero_total = 0
+        
+        for row in range(self.grid_rows):
+            for col in range(self.grid_cols):
+                # Usar el método correcto: intentar_recolectar(col, row)
+                dinero = self.sistema_monedas.intentar_recolectar(col, row)
+                if dinero > 0:
+                    self.presupuesto += dinero
+                    dinero_total += dinero
+                    monedas_recogidas += 1
+        
+        if monedas_recogidas > 0:
+            print(f"💰 Recogidas {monedas_recogidas} monedas (+${dinero_total}) | Total: ${self.presupuesto}")
+            self.draw()
+
     def draw(self):
         self.canvas.delete("all")
         self.canvas.configure(bg=self.palette.background)
@@ -1272,6 +1588,9 @@ class VillageGame(tk.Frame):
         self.question_btn.update_presupuesto(self.presupuesto)
         self.user_icon.draw(self.canvas)
         self.question_btn.draw(self.canvas)
+
+        # Icono de control (junto a la moneda)
+        self.draw_control_icon()
         self.top_right_btn.draw(self.canvas)
         
         self.canvas.create_window(
@@ -1667,15 +1986,16 @@ class VillageGame(tk.Frame):
     
     def on_key_press(self, event):
         """
-        Maneja todos los controles de teclado del juego.
+        Maneja los controles de teclado del juego.
         
         Controles:
-        - WASD: Mover cursor por el grid
         - 1, 2, 3, 4: Seleccionar tipo de torre
         - Enter: Colocar torre / Activar botón en modo menú
         - H: Recoger dinero de la casilla actual
         - G: Disparar manualmente la torre en la posición actual
         - Tab: Cambiar entre modo juego y modo menú
+        
+        NOTA: El movimiento del cursor (WASD) ha sido reemplazado por el joystick del control inalámbrico.
         """
         if self.juego_terminado:
             return
@@ -1740,30 +2060,8 @@ class VillageGame(tk.Frame):
         # MODO JUEGO: Movimiento del cursor y acciones
         # ═══════════════════════════════════════════════════════════════════════
         
-        # WASD: Movimiento del cursor
-        if tecla == 'w':  # Arriba
-            if self.cursor_fila > 0:
-                self.cursor_fila -= 1
-                print(f"⬆️ Cursor: ({self.cursor_columna}, {self.cursor_fila})")
-                self.draw()
-        
-        elif tecla == 's':  # Abajo
-            if self.cursor_fila < self.grid_rows - 1:
-                self.cursor_fila += 1
-                print(f"⬇️ Cursor: ({self.cursor_columna}, {self.cursor_fila})")
-                self.draw()
-        
-        elif tecla == 'a':  # Izquierda
-            if self.cursor_columna > 0:
-                self.cursor_columna -= 1
-                print(f"⬅️ Cursor: ({self.cursor_columna}, {self.cursor_fila})")
-                self.draw()
-        
-        elif tecla == 'd':  # Derecha
-            if self.cursor_columna < self.grid_cols - 1:
-                self.cursor_columna += 1
-                print(f"➡️ Cursor: ({self.cursor_columna}, {self.cursor_fila})")
-                self.draw()
+        # WASD: ELIMINADO - El control del joystick toma su lugar
+        # El movimiento del cursor ahora es exclusivo del control inalámbrico
         
         # 1, 2, 3, 4: Seleccionar tipo de torre
         elif tecla in ['1', '2', '3', '4']:
@@ -1869,6 +2167,9 @@ class VillageGame(tk.Frame):
                 print(f"❌ No se pudo colocar la torre")
             
             self.esperando_colocacion = None
+                # Deseleccionar botones
+            for btn in self.element_buttons:
+                    btn.selected = False
             self.torre_a_colocar = None
             
             self.draw()
@@ -1879,6 +2180,11 @@ class VillageGame(tk.Frame):
         print(f"Presupuesto: ${self.presupuesto}")
         
         self.top_right_btn.hide()
+
+        # Intentar conectar el control
+        if self.control_habilitado and not self.control_conectado:
+            self.conectar_control()
+
         self.juego_activo = True
         self.tiempo_inicio_juego = time.time()
         self.ultimo_tiempo = time.time()
