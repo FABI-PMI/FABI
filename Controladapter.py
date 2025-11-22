@@ -11,6 +11,7 @@ Protocolo:
 """
 
 import socket
+from queue import Queue, Empty
 import json
 import threading
 import time
@@ -40,6 +41,28 @@ class ControlState:
         self._prev_btn_d = False
         self._prev_btn_e = False
         self._prev_btn_f = False
+    
+    def copy(self):
+        """Crea una copia del estado actual"""
+        copia = ControlState()
+        copia.joystick_x = self.joystick_x
+        copia.joystick_y = self.joystick_y
+        copia.joystick_dir = self.joystick_dir
+        copia.joystick_btn = self.joystick_btn
+        copia.btn_a = self.btn_a
+        copia.btn_b = self.btn_b
+        copia.btn_c = self.btn_c
+        copia.btn_d = self.btn_d
+        copia.btn_e = self.btn_e
+        copia.btn_f = self.btn_f
+        copia._prev_joystick_btn = self._prev_joystick_btn
+        copia._prev_btn_a = self._prev_btn_a
+        copia._prev_btn_b = self._prev_btn_b
+        copia._prev_btn_c = self._prev_btn_c
+        copia._prev_btn_d = self._prev_btn_d
+        copia._prev_btn_e = self._prev_btn_e
+        copia._prev_btn_f = self._prev_btn_f
+        return copia
     
     def update_from_json(self, data: dict):
         """Actualiza el estado desde un mensaje JSON del control"""
@@ -109,6 +132,9 @@ class ControlAdapter:
         
         self.state = ControlState()
         self.on_state_update: Optional[Callable[[ControlState], None]] = None
+        
+        # Cola de estados para procesamiento thread-safe
+        self.state_queue = Queue()
         
         # Logs de conexión
         self.connection_attempts = 0
@@ -212,9 +238,9 @@ class ControlAdapter:
                             # Actualizar estado
                             self.state.update_from_json(estado_json)
                             
-                            # Callback si existe
-                            if self.on_state_update:
-                                self.on_state_update(self.state)
+                            # Poner estado en cola (thread-safe)
+                            # El callback se llamará desde el main thread
+                            self.state_queue.put(self.state.copy())
                                 
                         except json.JSONDecodeError as e:
                             print(f"⚠️ Error parseando JSON: {e}")
@@ -231,6 +257,16 @@ class ControlAdapter:
         self.connected = False
         print("🔌 Thread de recepción finalizado")
     
+
+    def process_queue(self):
+        """Procesa estados pendientes en la cola (llamar desde main thread)"""
+        try:
+            while True:
+                state = self.state_queue.get_nowait()
+                if self.on_state_update:
+                    self.on_state_update(state)
+        except Empty:
+            pass
     def is_connected(self) -> bool:
         """Retorna True si el control está conectado"""
         return self.connected

@@ -1301,7 +1301,8 @@ class VillageGame(tk.Frame):
         )
 
         if self.control_habilitado:
-            self.after(100, self._conectar_control_inicial)
+            self.after(1500, self._conectar_control_inicial)  # 1.5s para que la red se estabilice
+            self.after(100, self._procesar_cola_control)  # Iniciar procesamiento de cola
         
         self.draw()
         self.animate()
@@ -1446,23 +1447,47 @@ class VillageGame(tk.Frame):
             )
 
     def _conectar_control_inicial(self):
-        """Intenta conectar el control al iniciar"""
+        """Intenta conectar el control al iniciar con reintentos automáticos"""
         if self.control_conectado:
             return
         
-        print("🔌 Intentando conectar control...")
+        # Inicializar contador de reintentos si no existe
+        if not hasattr(self, '_intentos_conexion'):
+            self._intentos_conexion = 0
+            self._max_intentos = 10  # Máximo 10 intentos
+            self._delay_entre_intentos = 2000  # 2 segundos entre intentos
+        
+        self._intentos_conexion += 1
+        print(f"🔌 Intento de conexión {self._intentos_conexion}/{self._max_intentos}...")
         
         import threading
         def conectar_async():
             try:
                 # Conectar en thread secundario
                 exito = self.conectar_control()
-                # NO usar self.after desde el thread - solo print directo
-                if not exito:
-                    print("⚠️ Control no disponible - usando mouse/teclado")
+                
+                if exito:
+                    print("✅ ¡Control conectado exitosamente!")
+                    self._intentos_conexion = 0  # Resetear contador
+                else:
+                    # Programar reintento si no se alcanzó el máximo
+                    if self._intentos_conexion < self._max_intentos:
+                        print(f"⏳ Reintentando en {self._delay_entre_intentos/1000}s...")
+                        # Usar variable para que el main loop maneje el reintento
+                        self._necesita_reintento = True
+                    else:
+                        print("⚠️ Control no disponible después de varios intentos")
+                        print("   Usando mouse/teclado. Reconecta WiFi y reinicia el juego.")
+                        
             except Exception as e:
-                # NO usar self.after desde el thread
-                print(f"❌ Error conectando control: {e}")
+                print(f"❌ Error: {e}")
+                # Reintentar si hay error de red
+                if self._intentos_conexion < self._max_intentos:
+                    print(f"⏳ Reintentando en {self._delay_entre_intentos/1000}s...")
+                    try:
+                        self.after(self._delay_entre_intentos, self._conectar_control_inicial)
+                    except:
+                        pass
         
         thread = threading.Thread(target=conectar_async, daemon=True)
         thread.start()
@@ -1482,17 +1507,36 @@ class VillageGame(tk.Frame):
             
             if conectado:
                 self.control_conectado = True
-                # Llamar draw en el main thread de forma segura
-                try:
-                    self.after_idle(self.draw)
-                except:
-                    pass  # Si falla, draw se llamará en el próximo frame
+                # NO usar self.after aquí - se ejecuta desde thread secundario
+                # El procesamiento de cola ya se inicia en __init__
                 return True
             return False
         except Exception as e:
             print(f"❌ Error: {e}")
             return False
     
+
+    def _procesar_cola_control(self):
+        """Procesa eventos del control desde la cola (thread-safe)"""
+        try:
+            # Manejar reintentos de conexión si es necesario
+            if hasattr(self, '_necesita_reintento') and self._necesita_reintento:
+                self._necesita_reintento = False
+                self.after(self._delay_entre_intentos, self._conectar_control_inicial)
+            
+            if self.control_adapter and self.control_conectado:
+                if hasattr(self.control_adapter, 'process_queue'):
+                    self.control_adapter.process_queue()
+                # Verificar si se desconectó
+                if not self.control_adapter.is_connected():
+                    self.control_conectado = False
+                    self.draw()
+        except Exception as e:
+            pass  # Ignorar errores silenciosamente
+        
+        # Programar próxima ejecución (cada 16ms ~ 60fps)
+        if self.control_habilitado:
+            self.after(16, self._procesar_cola_control)
     def _on_control_update(self, state):
         """Callback del control"""
         # Control funciona siempre, no solo cuando juego_activo
