@@ -1507,17 +1507,19 @@ class VillageGame(tk.Frame):
                 self.after(0, self.draw)
         
         if state.get_button_press("joystick"):
-            self.after(0, self._colocar_torre_control)
+            self.after(0, self._forzar_disparo_torre_control)
         if state.get_button_press("a"):
             self.after(0, self._recoger_todas_monedas)
+        if state.get_button_press("b"):
+            self.after(0, self.abrir_salon_de_la_fama)
         if state.get_button_press("c"):
-            self.after(0, lambda: self._seleccionar_torre_control("sand"))
+            self.after(0, lambda: self._colocar_torre_control("water"))
         if state.get_button_press("d"):
-            self.after(0, lambda: self._seleccionar_torre_control("rock"))
+            self.after(0, lambda: self._colocar_torre_control("rock"))
         if state.get_button_press("e"):
-            self.after(0, lambda: self._seleccionar_torre_control("water"))
+            self.after(0, lambda: self._colocar_torre_control("sand"))
         if state.get_button_press("f"):
-            self.after(0, lambda: self._seleccionar_torre_control("fire"))
+            self.after(0, lambda: self._colocar_torre_control("fire"))
     
     def _mover_cursor_control(self, dir):
         """Mueve cursor"""
@@ -1531,17 +1533,88 @@ class VillageGame(tk.Frame):
             self.cursor_columna += 1
     
     def _seleccionar_torre_control(self, tipo):
-        """Selecciona torre"""
+        """Selecciona torre (sin colocar)"""
         for btn in self.element_buttons:
             if btn.element_type == tipo:
                 btn.on_click()
                 self.draw()
                 break
     
-    def _colocar_torre_control(self):
-        """Coloca torre"""
-        if self.esperando_colocacion and self.torre_a_colocar:
-            self.colocar_torre(self.cursor_fila, self.cursor_columna)
+    def _colocar_torre_control(self, tipo):
+        """Selecciona Y coloca torre automáticamente donde está el cursor"""
+        # Buscar el botón del tipo de torre
+        btn_torre = None
+        for btn in self.element_buttons:
+            if btn.element_type == tipo:
+                btn_torre = btn
+                break
+        
+        if not btn_torre:
+            print(f"❌ Tipo de torre '{tipo}' no encontrado")
+            return
+        
+        cfg = btn_torre.config[tipo]
+        
+        # Verificar presupuesto
+        if self.presupuesto < cfg['price']:
+            faltante = cfg['price'] - self.presupuesto
+            print(f"❌ Sin presupuesto para {cfg['name']} (${cfg['price']})")
+            print(f"   Tienes: ${self.presupuesto} | Faltan: ${faltante}")
+            return
+        
+        # Verificar que la casilla esté vacía
+        row, col = self.cursor_fila, self.cursor_columna
+        if (row, col) in self.grid.torres_grid:
+            print(f"❌ Ya hay una torre en ({col}, {row})")
+            return
+        
+        # Seleccionar la torre
+        for btn in self.element_buttons:
+            btn.selected = False
+        btn_torre.selected = True
+        self.esperando_colocacion = tipo
+        self.torre_a_colocar = cfg
+        
+        # Colocar inmediatamente
+        self.colocar_torre(row, col)
+        print(f"🏗️ Torre {cfg['name']} colocada en ({col}, {row})")
+    
+    def _forzar_disparo_torre_control(self):
+        """Fuerza disparo de la torre bajo el cursor"""
+        row, col = self.cursor_fila, self.cursor_columna
+        
+        # Verificar si hay torre
+        if (row, col) not in self.grid.torres_grid:
+            print(f"❌ No hay torre en ({col}, {row}) para disparar")
+            return
+        
+        torre = self.grid.torres_grid[(row, col)]
+        
+        try:
+            # Calcular posición de la torre
+            posicion_torre = [
+                self.grid_x + col * self.cell_size + self.cell_size // 2,
+                100 + row * self.cell_size + self.cell_size // 2
+            ]
+            
+            tiempo_actual = time.time()
+            
+            # Resetear cooldown para forzar disparo
+            if hasattr(torre, 'ultimo_disparo'):
+                torre.ultimo_disparo = 0
+            
+            # Disparar
+            if hasattr(torre, 'disparar'):
+                proyectil = torre.disparar(tiempo_actual, posicion_torre)
+                if proyectil:
+                    print(f"💥 ¡Disparo forzado! Torre en ({col}, {row})")
+                    self.draw()
+                else:
+                    print(f"⚠️ Torre en ({col}, {row}) no pudo disparar")
+            else:
+                print(f"⚠️ Torre sin método disparar")
+        except Exception as e:
+            print(f"❌ Error al forzar disparo: {e}")
     
     def _recoger_todas_monedas(self):
         """Recoge todas las monedas del tablero con botón A"""
