@@ -156,10 +156,20 @@ class ControlAdapter:
             
             # Crear socket
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(5)  # Timeout de 5 segundos
+            self.socket.settimeout(5)  # Timeout de conexión
             
             # Conectar
             self.socket.connect((self.ip, self.port))
+            
+            # Después de conectar, configurar timeout más largo para recepción
+            self.socket.settimeout(1.0)  # 1 segundo timeout para recv
+            
+            # Deshabilitar Nagle algorithm para menor latencia
+            self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            
+            # Mantener conexión viva
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            
             self.connected = True
             
             print(f"✅ Control conectado exitosamente")
@@ -212,16 +222,24 @@ class ControlAdapter:
     def _receive_loop(self):
         """Loop de recepción de datos (ejecuta en thread separado)"""
         buffer = ""
+        print("🔄 Thread de recepción iniciado")
         
         while self.running and self.connected:
             try:
                 # Recibir datos
-                datos = self.socket.recv(1024).decode('utf-8')
+                datos = self.socket.recv(1024)
                 
                 if not datos:
-                    print("⚠️ Control cerró la conexión")
+                    print("⚠️ Control cerró la conexión (sin datos)")
                     self.connected = False
                     break
+                
+                # Decodificar
+                try:
+                    datos = datos.decode('utf-8')
+                except UnicodeDecodeError:
+                    print("⚠️ Error de decodificación, ignorando datos")
+                    continue
                 
                 # Agregar al buffer
                 buffer += datos

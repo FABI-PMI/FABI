@@ -1519,26 +1519,53 @@ class VillageGame(tk.Frame):
     def _procesar_cola_control(self):
         """Procesa eventos del control desde la cola (thread-safe)"""
         try:
+            # DEBUG: Mostrar estado cada 5 segundos
+            if not hasattr(self, '_ultimo_debug_print'):
+                self._ultimo_debug_print = 0
+            import time as t
+            if t.time() - self._ultimo_debug_print > 5:
+                self._ultimo_debug_print = t.time()
+                adapter_ok = self.control_adapter is not None
+                conectado = self.control_adapter.is_connected() if adapter_ok else False
+                cola_size = self.control_adapter.state_queue.qsize() if adapter_ok and hasattr(self.control_adapter, 'state_queue') else 0
+                print(f"🔍 DEBUG: adapter={adapter_ok}, conectado={conectado}, cola={cola_size}, control_conectado={self.control_conectado}")
+            
             # Manejar reintentos de conexión si es necesario
             if hasattr(self, '_necesita_reintento') and self._necesita_reintento:
                 self._necesita_reintento = False
                 self.after(self._delay_entre_intentos, self._conectar_control_inicial)
             
-            if self.control_adapter and self.control_conectado:
-                if hasattr(self.control_adapter, 'process_queue'):
-                    self.control_adapter.process_queue()
-                # Verificar si se desconectó
-                if not self.control_adapter.is_connected():
-                    self.control_conectado = False
+            # Verificar si el adapter existe y está conectado
+            if self.control_adapter:
+                # Sincronizar estado de conexión
+                adapter_conectado = self.control_adapter.is_connected()
+                
+                if adapter_conectado != self.control_conectado:
+                    # Estado cambió - actualizar y redibujar
+                    self.control_conectado = adapter_conectado
+                    if adapter_conectado:
+                        print("🎮 Control activo - procesando inputs")
                     self.draw()
+                
+                # Procesar cola si está conectado
+                if adapter_conectado and hasattr(self.control_adapter, 'process_queue'):
+                    self.control_adapter.process_queue()
+                    
         except Exception as e:
-            pass  # Ignorar errores silenciosamente
+            print(f"⚠️ Error en procesar_cola: {e}")
         
         # Programar próxima ejecución (cada 16ms ~ 60fps)
         if self.control_habilitado:
             self.after(16, self._procesar_cola_control)
     def _on_control_update(self, state):
         """Callback del control"""
+        # DEBUG: Mostrar que se recibió un estado
+        if not hasattr(self, '_ultimo_callback_print'):
+            self._ultimo_callback_print = 0
+        import time as t
+        if t.time() - self._ultimo_callback_print > 2:
+            self._ultimo_callback_print = t.time()
+            print(f"📥 Estado recibido: joystick={state.joystick_dir}, btns=A:{state.btn_a} B:{state.btn_b} C:{state.btn_c}")
         # Control funciona siempre, no solo cuando juego_activo
         # if not self.juego_activo:
         #     return
