@@ -155,20 +155,20 @@ class SalonFama:
         except:
             ranking_anterior = []
         
-        # Crear representación del ranking actual (top 5)
-        ranking_nuevo = [(u, d.get('pts', 0)) for u, d in usuarios_actuales[:5]]
+        # Crear representación del ranking actual (top 10)
+        ranking_nuevo = [(u, d.get('pts', 0)) for u, d in usuarios_actuales[:10]]
         
-        # Verificar si cambió el top 5
+        # Verificar si cambió el top 10
         if ranking_nuevo != ranking_anterior:
             print("\n" + "=" * 60)
             print("🔄 ¡CAMBIOS DETECTADOS EN EL RANKING!")
             print("=" * 60)
-            print("\n📊 Ranking anterior vs nuevo:")
+            print("\n📊 Ranking anterior vs nuevo (Top 10):")
             print("\nAnterior:")
-            for i, (u, pts) in enumerate(ranking_anterior[:5], 1):
+            for i, (u, pts) in enumerate(ranking_anterior[:10], 1):
                 print(f"  {i}. {u} - {pts} pts")
             print("\nNuevo:")
-            for i, (u, pts) in enumerate(ranking_nuevo[:5], 1):
+            for i, (u, pts) in enumerate(ranking_nuevo[:10], 1):
                 print(f"  {i}. {u} - {pts} pts")
             
             print("\n📢 Publicando automáticamente en Instagram...")
@@ -191,8 +191,18 @@ class SalonFama:
             except Exception as e:
                 print(f"\n❌ Error al publicar: {e}")
                 print("=" * 60 + "\n")
+            
+            # EJECUTAR X_APP AUTOMÁTICAMENTE
+            print("\n📢 Publicando automáticamente en Twitter/X...")
+            print("=" * 60)
+            try:
+                from X_APP import publicar_ranking_twitter
+                publicar_ranking_twitter()
+            except Exception as e:
+                print(f"\n❌ Error al publicar en Twitter: {e}")
+                print("=" * 60 + "\n")
         else:
-            print("\nℹ️ No hay cambios en el ranking desde la última publicación")
+            print("\nℹ️ No hay cambios en el ranking Top 10 desde la última publicación")
 
     def crear_contenido(self):
         # Logo grande arriba
