@@ -233,7 +233,7 @@ class ColorSelectorApp:
         
         # Definir tamaño de la ventana
         window_width = 1250  # Aumentado para acomodar preview más ancho
-        window_height = 850  # Aumentado para acomodar preview más alto
+        window_height = 700  # Aumentado para acomodar preview más alto
         
         # Calcular la posición para centrar la ventana
         position_x = int((screen_width - window_width) / 2)
@@ -1242,32 +1242,18 @@ class ColorSelectorApp:
             print(f"   Color: {color}")
             print(f"   Tema: {tema}")
             print(f"   Canción: {cancion or 'Ninguna'}")
-            
-            # ✅ CORRECCIÓN: Importar y abrir menú en nueva ventana root
-            from Menu import Menu
-            
-            # Detener música si está reproduciéndose
-            #self._stop_music()
-            
-            # Ocultar ventana de personalización
             self.root.withdraw()
             
-            # ✅ CREAR NUEVA VENTANA ROOT PARA EL MENÚ (no Toplevel)
-            menu_root = tk.Tk()
+            #Pasar al menu
+            from GameContext import GameContext
+            from Menu import Menu
+            context = GameContext(username)
+            palette_final = generate_palette(color, tema)
+            context.paleta = palette_final
+            menu_root = tk.Toplevel(self.root)
             menu_root.title("Avatars VS Rooks - Menú")
-            
-            # Crear instancia del menú pasando el username
-            menu_app = Menu(menu_root, username=username)
-            
-            # Cuando se cierre el menú, cerrar personalización también
-            def on_menu_close():
-                menu_root.destroy()
-                self.root.destroy()
-            
-            menu_root.protocol("WM_DELETE_WINDOW", on_menu_close)
-            
-            # NO destruir personalización todavía, dejar que el menú tome control
-            # El menú se encargará de todo
+            Menu(menu_root, context)
+            menu_root.protocol("WM_DELETE_WINDOW",lambda: [menu_root.destroy(), self.root.destroy()])
             
         except Exception as e:
             import traceback

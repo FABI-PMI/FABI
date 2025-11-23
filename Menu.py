@@ -1,7 +1,10 @@
 import tkinter as tk
 
 class Menu:
-    def __init__(self, root):  
+    def __init__(self, root, context):  
+
+        self.context = context
+        self.username = context.username
         self.root = root  
         self.root.title("Avatars VS Rooks - Menú") 
         self.root.configure(bg="#8A1C32") 
@@ -225,37 +228,36 @@ está en tus manos.
         return f'#{darkened[0]:02x}{darkened[1]:02x}{darkened[2]:02x}'
     
     #Eleccion de Nivel
-    def NivelDificil(self): 
+    def NivelFacil(self): 
+        nivel = "FACIL"                             
+        print(f"Dificultad {nivel} activada")
+        self.context.nivel = "FACIL"
+        self.mostrar_frecuencias()
+        self.abrir_principal()
+
+    def NivelMedio(self):
+        nivel = "MEDIO"     
+        print(f"Dificultad {nivel} activada")
+        self.context.nivel = "MEDIO"
+        self.mostrar_frecuencias()
+        self.abrir_principal()
+
+    def NivelDificil(self):
         nivel = "DIFÍCIL"    
         print(f"Dificultad {nivel} activada")      
-        self.mostrar_frecuencias()                    
-        self.abrir_principal()                        
-
-
-    def NivelMedio(self): 
-        nivel = "MEDIO"     
-        print(f"Dificultad {nivel} activada")      
-        self.mostrar_frecuencias()                    
-        self.abrir_principal()                        
-
-
-    def NivelFacil(self):
-        nivel = "FACIL"                             
-        print(f"Dificultad {nivel} activada")      
-        self.mostrar_frecuencias()                    
-        self.abrir_principal()                        
+        self.context.nivel = "DIFICIL"
+        self.mostrar_frecuencias()
+        self.abrir_principal()                                                                
 
     #Ventana
     def abrir_principal(self):
-        # TODO: Cuando VentanaPrincipal esté lista, descomentar estas líneas:
-        # nivel = ...  # Obtener el nivel seleccionado
-        # frecuencias = self.get_all_frequencies()
-        # VentanaClase = VP(nivel=nivel, frecuencias=frecuencias)
+        from VentanaPrincipal import VillageGameWindow
         
-        from VentanaPrincipal import VillageGameWindow as VP
-        self.root.after(50, self.root.destroy)
-        VentanaClase = VP
-        VentanaClase()
+        frecuencias = self.get_all_frequencies()
+        self.context.frecuencias = frecuencias
+        parent = self.root.master
+        self.root.destroy()
+        VillageGameWindow(parent, self.context)
 
 def main():
     root = tk.Tk()

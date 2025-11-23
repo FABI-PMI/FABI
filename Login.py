@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
-import json
 import os
 from datetime import datetime, timedelta
 import random
@@ -11,11 +10,8 @@ from twilio.rest import Client
 from PIL import Image, ImageTk
 import cv2
 import pickle
-import numpy as np
-from cryptography.fernet import Fernet
-from encriptar import cargar_clave, generar_clave, ARCHIVO_SALIDA as ARCHIVO_USUARIOS_ENC
-
-ARCHIVO_USUARIOS = "usuarios.json"
+from GameContext import cargar_usuarios, guardar_usuarios, GameContext
+from Menu import Menu
 
 def enviar_sms(destinatario, cuerpo, asunto="Mensaje del sistema"):
     try:
@@ -52,74 +48,6 @@ def enviar_correo(destinatario, cuerpo, asunto="Mensaje del sistema"):
         return True
     except Exception as e:
         print(f"Error enviando el correo: {e}")
-        return False
-
-def cargar_usuarios():
-    # Preferir archivo encriptado si existe
-    try:
-        if 'ARCHIVO_USUARIOS_ENC' in globals():
-            enc_path = ARCHIVO_USUARIOS_ENC
-        else:
-            enc_path = "usuarios.json.enc"
-        if os.path.exists(enc_path):
-            try:
-                clave = cargar_clave()
-            except FileNotFoundError:
-                messagebox.showerror("Error", "No se encontró la clave de cifrado (clave.key).")
-                return {}
-            fernet = Fernet(clave)
-            with open(enc_path, "rb") as f:
-                datos_encriptados = f.read()
-            try:
-                datos = fernet.decrypt(datos_encriptados).decode("utf-8")
-                return json.loads(datos)
-            except Exception as e:
-                print(f"Error desencriptando usuarios: {e}")
-                messagebox.showerror("Error", "No se pudo desencriptar la base de usuarios.")
-                return {}
-        # Compatibilidad: si no existe el .enc, intentar el JSON plano legado
-        if os.path.exists(ARCHIVO_USUARIOS):
-            try:
-                with open(ARCHIVO_USUARIOS, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, IOError) as e:
-                print(f"Error cargando usuarios (JSON): {e}")
-                return {}
-    except Exception as e:
-        print(f"Error cargando usuarios: {e}")
-        return {}
-    if os.path.exists(ARCHIVO_USUARIOS):
-            try:
-                with open(ARCHIVO_USUARIOS, "r") as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, IOError) as e:
-                print(f"Error cargando usuarios: {e}")
-                return {}
-    return {}
-
-def guardar_usuarios(usuarios):
-    try:
-        try:
-            clave = cargar_clave()
-        except FileNotFoundError:
-            clave = generar_clave()
-        fernet = Fernet(clave)
-        datos_json = json.dumps(usuarios, ensure_ascii=False, indent=4)
-        datos_encriptados = fernet.encrypt(datos_json.encode("utf-8"))
-        # Guardar cifrado
-        enc_path = ARCHIVO_USUARIOS_ENC if "ARCHIVO_USUARIOS_ENC" in globals() else "usuarios.json.enc"
-        with open(enc_path, "wb") as f:
-            f.write(datos_encriptados)
-        # Opcional: eliminar el JSON en claro si existe
-        try:
-            if os.path.exists(ARCHIVO_USUARIOS):
-                os.remove(ARCHIVO_USUARIOS)
-        except Exception as e:
-            print(f"No se pudo eliminar {ARCHIVO_USUARIOS}: {e}")
-        return True
-    except Exception as e:
-        print(f"Error guardando usuarios: {e}")
-        messagebox.showerror("Error", "No se pudo guardar la información del usuario (cifrado).")
         return False
 
 def generar_pin():
@@ -564,15 +492,14 @@ class LoginApp:
 
     def abrir_registro(self):
         """Abre Registro en el mismo proceso y cierra Login después"""
-        import tkinter as tk
         try:
             from Registro import Registro
         except Exception as e:
             messagebox.showerror('Error', f'No se pudo importar Registro: {e}')
             return
-        nueva = tk.Tk()
+        nueva = tk.Toplevel(self.root)
         try:
-            Registro(nueva)
+            Registro(nueva, callback_abrir_login=self.volver_de_registro)
         except Exception as e:
             try:
                 nueva.destroy()
@@ -582,11 +509,16 @@ class LoginApp:
             return
         # cerrar login un instante después para evitar after/bindings residuales
         try:
-            self.root.after(50, self.root.destroy)
+            nueva.update_idletasks()
+            nueva.lift()
+            nueva.focus_force()
+            self.root.after(50, self.root.withdraw)
+        
         except Exception:
             pass
-        nueva.mainloop()
 
+    def volver_de_registro(self):
+        self.root.deiconify()  
 
     def menu_principal(self):
         self.limpiar()
@@ -707,18 +639,13 @@ class LoginApp:
         messagebox.showinfo("Éxito", f"Sesión iniciada para: {nombre_detectado}")
 
         if True:
-            self.abrir_principal(nombre_detectado)
+            self.abrir_menu(nombre_detectado)
 
-
-    def abrir_principal(self, usuario):
-        from VentanaPrincipal import VillageGameWindow as VP
-        VentanaClase = VP
-        # ⬇️ Pasar el username al juego
-        VentanaClase(current_username=usuario)
-        # cerrar login después de lanzar la ventana principal
-        self.root.after(50, self.root.destroy)
-
-
+    def abrir_menu(self, usuario):
+        context = GameContext(usuario)
+        ventana_menu = tk.Toplevel(self.root)   # menú es Toplevel del root
+        Menu(ventana_menu, context)
+        self.root.withdraw()  
 
     def verificar_login(self):
         credencial = self.usuario_entry.get().strip()
@@ -745,7 +672,7 @@ class LoginApp:
                 messagebox.showinfo("Éxito", f"Sesión iniciada para: {usuario_encontrado}")
 
                 if True:
-                    self.abrir_principal(usuario_encontrado)
+                    self.abrir_menu(usuario_encontrado)
 
 
         else:

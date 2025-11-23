@@ -1103,6 +1103,12 @@ class VillageGame(tk.Frame):
     """Clase principal del juego"""
     def __init__(self, parent, width=600, height=750, nivel="FACIL", frecuencias=None, initial_palette=None, current_username=None):
         super().__init__(parent, width=width, height=height)
+        print("\n===== VILLAGEGAME RECIBIÓ =====")
+        print("Nivel:", nivel)
+        print("Frecuencias:", frecuencias)
+        print("Paleta inicial:", initial_palette)
+        print("Username:", current_username)
+        print("================================\n")
         self.width = width
         self.height = height
         self.current_username = current_username
@@ -1988,21 +1994,33 @@ class AnimationWindow(tk.Toplevel):
 
 
 class VillageGameWindow:
-    def __init__(self, nivel="FACIL", frecuencias=None, initial_palette=None, current_username=None):
-        self.root = tk.Tk()
+    def __init__(self, parent, context):
+        self.context = context
+        self.root = tk.Toplevel(parent)
         self.root.title("Avatars vs Rooks")
         self.root.geometry("600x750")
         self.root.resizable(False, False)
 
+        print("\n===== CONTEXTO RECIBIDO EN VILLAGEGAMEWINDOW =====")
+        print("Nivel:", context.nivel)
+        print("Frecuencias:", context.frecuencias)
+        print("Paleta:", context.paleta)
+        print("Username:", context.username)
+        print("===================================================\n")
+
         self.game = VillageGame(
-            self.root, 600, 750, nivel, frecuencias, initial_palette,
-            current_username=current_username
+            self.root,
+            600,
+            750,
+            context.nivel,
+            context.frecuencias,
+            context.paleta,
+            current_username=context.username
         )
         self.game.pack()
     
     def run(self):
         self.root.mainloop()
-
 
 if __name__ == "__main__":
     frecuencias_prueba = {

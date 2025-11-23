@@ -620,19 +620,20 @@ class Registro:
             self.frame_paso2.pack(fill=tk.BOTH, expand=True)
     
     def volver_a_login(self):
-        """Vuelve al login usando Toplevel"""
-        from Login import LoginApp
-        ventana = tk.Toplevel()
+        """Vuelve al login ya existente"""
         try:
-            LoginApp(ventana)
+            if self.callback_abrir_login:
+                self.callback_abrir_login()  
         except Exception as e:
-            ventana.destroy()
             messagebox.showerror('Error', f'No se pudo abrir Login: {e}')
             return
-        # Ocultar registro
-        self.root.withdraw()
-        # Cuando se cierre login, cerrar todo
-        ventana.protocol("WM_DELETE_WINDOW", lambda: [ventana.destroy(), self.root.destroy()])
+
+        # Cerrar SOLO la ventana de registro
+        try:
+            self.root.destroy()
+        except Exception as e:
+            messagebox.showerror('Error', f'No se pudo cerrar Registro: {e}')
+
 
     def volver_a_personalizacion(self):
         """Abre personalización correctamente sin crear nuevo root"""
