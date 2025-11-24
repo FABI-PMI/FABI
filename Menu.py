@@ -1,8 +1,10 @@
 import tkinter as tk
 
 class Menu:
-    def __init__(self, root):  
+    def __init__(self, root, username=None):  
         self.root = root  
+        self.username = username  # Guardar username para pasarlo al juego
+        self.nivel_seleccionado = "FACIL"  # Nivel por defecto
         self.root.title("Avatars VS Rooks - Menú") 
         self.root.configure(bg="#8A1C32") 
         self.root.geometry("1100x650")        
@@ -227,6 +229,7 @@ está en tus manos.
     #Eleccion de Nivel
     def NivelDificil(self): 
         nivel = "DIFÍCIL"    
+        self.nivel_seleccionado = nivel
         print(f"Dificultad {nivel} activada")      
         self.mostrar_frecuencias()                    
         self.abrir_principal()                        
@@ -234,6 +237,7 @@ está en tus manos.
 
     def NivelMedio(self): 
         nivel = "MEDIO"     
+        self.nivel_seleccionado = nivel
         print(f"Dificultad {nivel} activada")      
         self.mostrar_frecuencias()                    
         self.abrir_principal()                        
@@ -241,6 +245,7 @@ está en tus manos.
 
     def NivelFacil(self):
         nivel = "FACIL"                             
+        self.nivel_seleccionado = nivel
         print(f"Dificultad {nivel} activada")      
         self.mostrar_frecuencias()                    
         self.abrir_principal()                        
@@ -255,7 +260,7 @@ está en tus manos.
         from VentanaPrincipal import VillageGameWindow as VP
         self.root.after(50, self.root.destroy)
         VentanaClase = VP
-        VentanaClase()
+        VentanaClase(nivel=self.nivel_seleccionado, frecuencias=self.get_all_frequencies(), current_username=self.username)
 
 def main():
     root = tk.Tk()
