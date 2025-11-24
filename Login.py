@@ -707,18 +707,36 @@ class LoginApp:
         messagebox.showinfo("Éxito", f"Sesión iniciada para: {nombre_detectado}")
 
         if True:
-            self.abrir_principal(nombre_detectado)
+            self.abrir_menu(nombre_detectado)
 
-
-    def abrir_principal(self, usuario):
-        from VentanaPrincipal import VillageGameWindow as VP
-        VentanaClase = VP
-        # ⬇️ Pasar el username al juego
-        VentanaClase(current_username=usuario)
-        # cerrar login después de lanzar la ventana principal
-        self.root.after(50, self.root.destroy)
-
-
+    def abrir_menu(self, usuario):
+        """
+        ✅ CORREGIDO: Abre el Menu en lugar de VentanaPrincipal
+        
+        Flujo:
+        1. Importa la clase Menu
+        2. Destruye la ventana de Login
+        3. Crea nueva ventana raíz para el Menu
+        4. Instancia el Menu pasando el username
+        5. Inicia el loop de eventos
+        """
+        try:
+            from Menu import Menu
+        except Exception as e:
+            messagebox.showerror('Error', f'No se pudo importar Menu: {e}')
+            return
+        
+        # Destruir ventana de login
+        self.root.destroy()
+        
+        # Crear nueva ventana para el menú
+        menu_root = tk.Tk()
+        
+        # Crear instancia del menú con el usuario
+        Menu(menu_root, username=usuario)
+        
+        # Iniciar loop de eventos
+        menu_root.mainloop()
 
     def verificar_login(self):
         credencial = self.usuario_entry.get().strip()
@@ -745,7 +763,7 @@ class LoginApp:
                 messagebox.showinfo("Éxito", f"Sesión iniciada para: {usuario_encontrado}")
 
                 if True:
-                    self.abrir_principal(usuario_encontrado)
+                    self.abrir_menu(usuario_encontrado)
 
 
         else:

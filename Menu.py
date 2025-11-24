@@ -3,6 +3,9 @@ import tkinter as tk
 class Menu:
     def __init__(self, root):  
         self.root = root  
+        self.username = username  # Guardar username para pasarlo al juego
+        self.nivel_seleccionado = "FACIL"  # Nivel por defecto
+        self.frecuencias_guardadas = {}  # ✅ NUEVO: Cache de frecuencias
         self.root.title("Avatars VS Rooks - Menú") 
         self.root.configure(bg="#8A1C32") 
         self.root.geometry("1100x650")        
@@ -206,7 +209,17 @@ está en tus manos.
         return self.Frecuencias[nombre].get()
 
     def get_all_frequencies(self):
-        return {nombre: slider.get() for nombre, slider in self.Frecuencias.items()}
+        """✅ CORREGIDO: Guarda las frecuencias en caché antes de acceder a los widgets"""
+        # Si ya están guardadas, devolverlas
+        if self.frecuencias_guardadas:
+            return self.frecuencias_guardadas
+        
+        # Si no, leerlas de los sliders
+        try:
+            return {nombre: slider.get() for nombre, slider in self.Frecuencias.items()}
+        except tk.TclError:
+            # Si los widgets ya fueron destruidos, devolver las guardadas
+            return self.frecuencias_guardadas if self.frecuencias_guardadas else {}
     
     def mostrar_frecuencias(self):
         frecuencias = self.get_all_frequencies()
@@ -247,15 +260,40 @@ está en tus manos.
 
     #Ventana
     def abrir_principal(self):
-        # TODO: Cuando VentanaPrincipal esté lista, descomentar estas líneas:
-        # nivel = ...  # Obtener el nivel seleccionado
-        # frecuencias = self.get_all_frequencies()
-        # VentanaClase = VP(nivel=nivel, frecuencias=frecuencias)
+        """
+        ✅ CORREGIDO: Guarda las frecuencias ANTES de destruir la ventana
         
+        Flujo:
+        1. Leer y guardar frecuencias de los sliders (mientras existen)
+        2. Destruir la ventana del menú
+        3. Crear la nueva ventana del juego con las frecuencias guardadas
+        4. Iniciar el loop de eventos
+        """
         from VentanaPrincipal import VillageGameWindow as VP
-        self.root.after(50, self.root.destroy)
-        VentanaClase = VP
-        VentanaClase()
+        
+        # ✅ CRÍTICO: Guardar frecuencias ANTES de destruir la ventana
+        self.frecuencias_guardadas = {
+            nombre: slider.get() 
+            for nombre, slider in self.Frecuencias.items()
+        }
+        
+        # Guardar otras referencias necesarias
+        nivel = self.nivel_seleccionado
+        username = self.username
+        frecuencias = self.frecuencias_guardadas
+        
+        # Destruir el menú (los widgets ya no existen después de esto)
+        self.root.destroy()
+        
+        # Crear nueva ventana de juego con los datos guardados
+        game_window = VP(
+            nivel=nivel, 
+            frecuencias=frecuencias, 
+            current_username=username
+        )
+        
+        # Iniciar el loop de la nueva ventana
+        game_window.run()
 
 def main():
     root = tk.Tk()

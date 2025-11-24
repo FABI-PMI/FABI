@@ -50,6 +50,30 @@ from RooksClass import RookArena, RookRoca, RookAgua, RookFuego, GestorRooks
 from AvatarClass import GestorAvatares
 from MoneySystem import SistemaPuntos, SistemaMonedas
 
+# ═══════════════════════════════════════════════════════════════════════════
+# SISTEMA DE PALETAS PERSONALIZADAS POR USUARIO
+# ═══════════════════════════════════════════════════════════════════════════
+try:
+    from cargar_paleta_usuario import cargar_paleta_para_juego
+    PALETA_USUARIO_DISPONIBLE = True
+    print("✅ Sistema de paletas personalizadas disponible")
+except ImportError as e:
+    PALETA_USUARIO_DISPONIBLE = False
+    print(f"⚠️ Sistema de paletas no disponible: {e}")
+    def cargar_paleta_para_juego(username):
+        return None
+
+# Importar adaptador de control (opcional, con fallback)
+try:
+    from Controladapter import ControlAdapter, ControlState
+    CONTROL_DISPONIBLE = True
+    print("✅ Módulo de control importado correctamente")
+except ImportError as e:
+    print(f"⚠️ No se pudo importar ControlAdapter: {e}")
+    print("   El juego funcionará solo con teclado/ratón")
+    CONTROL_DISPONIBLE = False
+    ControlAdapter = None
+    ControlState = None
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SISTEMA DE SONIDO PARA TORRES
@@ -1106,6 +1130,18 @@ class VillageGame(tk.Frame):
         self.width = width
         self.height = height
         self.current_username = current_username
+        
+        # ✅ CARGAR PALETA PERSONALIZADA DEL USUARIO
+        if PALETA_USUARIO_DISPONIBLE and current_username and initial_palette is None:
+            print(f"\n🎨 Cargando paleta para: {current_username}")
+            try:
+                paleta_usuario = cargar_paleta_para_juego(current_username)
+                if paleta_usuario:
+                    initial_palette = paleta_usuario
+                    print("✅ Paleta personalizada aplicada")
+            except Exception as e:
+                print(f"⚠️ Error: {e}")
+        
         self.nivel = nivel
         self.frecuencias = frecuencias or {}
         self.presupuesto = 350
