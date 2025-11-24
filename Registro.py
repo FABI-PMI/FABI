@@ -635,26 +635,26 @@ class Registro:
         ventana.protocol("WM_DELETE_WINDOW", lambda: [ventana.destroy(), self.root.destroy()])
 
     def volver_a_personalizacion(self):
-        """Abre personalización correctamente sin crear nuevo root"""
-        from ventana_personalizacion import ColorSelectorApp
-        
-        # ✅ Usar Toplevel en lugar de nuevo Tk()
-        ventana = tk.Toplevel()
-        ventana.title("Personalización")
-        
+        """Abre personalización correctamente destruyendo registro y creando nueva ventana"""
         try:
-            ColorSelectorApp(ventana)
+            from ventana_personalizacion import ColorSelectorApp
+            
+            # Destruir la ventana de registro
+            self.root.destroy()
+            
+            # Crear nueva ventana root para personalización
+            pers_root = tk.Tk()
+            
+            # Crear la aplicación de personalización
+            ColorSelectorApp(pers_root)
+            
+            # Iniciar mainloop
+            pers_root.mainloop()
+            
         except Exception as e:
-            messagebox.showerror('Error', f'No se pudo abrir Personalización: {e}')
-            ventana.destroy()
-            self.root.deiconify()  # Volver a mostrar registro si falla
-            return
-        
-        # Ocultar registro (NO destruir aún)
-        self.root.withdraw()
-        
-        # Cuando se cierre personalización, cerrar todo
-        ventana.protocol("WM_DELETE_WINDOW", lambda: [ventana.destroy(), self.root.destroy()])
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror('Error', f'No se pudo abrir Personalización:\n{e}')
     
     def activar_face_recognition(self):
         """Activa el reconocimiento facial"""

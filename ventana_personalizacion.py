@@ -1211,14 +1211,91 @@ class ColorSelectorApp:
             traceback.print_exc()
             messagebox.showerror("Error", f"No se pudo guardar la personalización:\n{e}")
             return False
+        
+    def _guardar_personalizacion_completa(self, username, color, tema, cancion, paleta_completa):
+        """Guarda la personalización completa incluyendo la paleta generada"""
+        import json
+        from cryptography.fernet import Fernet
+        
+        archivo_encriptado = 'usuarios.json.enc'
+        archivo_clave = 'clave.key'
+        
+        try:
+            # Cargar clave
+            with open(archivo_clave, 'rb') as f:
+                clave = f.read()
+        
+            fernet = Fernet(clave)
+        
+            # Desencriptar archivo de usuarios
+            with open(archivo_encriptado, 'rb') as f:
+                datos_encriptados = f.read()
+        
+            datos_desencriptados = fernet.decrypt(datos_encriptados)
+            usuarios = json.loads(datos_desencriptados.decode('utf-8'))
+        
+        except FileNotFoundError:
+            messagebox.showerror("Error", "No se encontró el archivo de usuarios o la clave")
+            return False
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al leer usuarios: {e}")
+            return False
+        
+        # Verificar que el usuario existe
+        if username not in usuarios:
+            messagebox.showerror("Error", f"El usuario '{username}' no existe")
+            return False
+        
+        # ✅ CONVERTIR TUPLAS A LISTAS para JSON (JSON no soporta tuplas)
+        paleta_serializable = {}
+        for key, value in paleta_completa.items():
+            if isinstance(value, tuple):
+                paleta_serializable[key] = list(value)  # Tupla → Lista
+            else:
+                paleta_serializable[key] = value
+        
+        # Agregar personalización completa al usuario
+        usuarios[username]['personalizacion'] = {
+            'color': color,
+            'tema': tema,
+            'cancion': cancion,
+            'colores': paleta_serializable  # ✅ Guardar como listas (JSON compatible)
+        }
+        
+        # Encriptar y guardar cambios
+        try:
+            datos_json = json.dumps(usuarios, indent=4, ensure_ascii=False)
+            datos_encriptados = fernet.encrypt(datos_json.encode('utf-8'))
+        
+            with open(archivo_encriptado, 'wb') as f:
+                f.write(datos_encriptados)
+        
+            print(f"✅ Personalización completa guardada para {username}")
+        
+            messagebox.showinfo(
+                "Guardado Exitoso",
+                f"Tu personalización se guardó correctamente.\n\n"
+                f"Usuario: {username}\n"
+                f"Color: {color}\n"
+                f"Tema: {tema}\n"
+                f"Canción: {cancion or 'Ninguna'}"
+            )
+            return True
+        
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Error", f"No se pudo guardar la personalización:\n{e}")
+            return False
+
     
     def iniciar_juego(self):
-        """Guarda la personalización y abre el MENÚ (no el juego directamente)"""
+        """Guarda la personalización completa y abre el menú"""
         # Pedir username para guardar personalización
         username = self._pedir_username()
         if not username:
             return  # Usuario canceló
-        
+
         # Verificar que el usuario existe
         if not self._verificar_usuario_existe(username):
             messagebox.showerror(
@@ -1227,53 +1304,49 @@ class ColorSelectorApp:
                 "Por favor verifica el nombre e intenta de nuevo."
             )
             return
-        
+
         try:
             # Obtener configuración actual
             color = self.color_favorito.get()
             tema = self.tema_var.get()
             cancion = self.cancion_var.get().strip()
             
-            # Guardar personalización en el perfil del usuario
-            if not self._guardar_personalizacion(username, color, tema, cancion):
+            # Generar paleta completa
+            from PaletaColores import generate_palette
+            paleta_completa = generate_palette(color, tema)
+            
+            # Guardar personalización completa (con paleta)
+            if not self._guardar_personalizacion_completa(username, color, tema, cancion, paleta_completa):
                 return  # Error al guardar
             
             print(f"✅ Personalización guardada para {username}")
             print(f"   Color: {color}")
             print(f"   Tema: {tema}")
             print(f"   Canción: {cancion or 'Ninguna'}")
+            print(f"   Paleta: {len(paleta_completa)} colores")
             
-            # ✅ CORRECCIÓN: Importar y abrir menú en nueva ventana root
-            from Menu import Menu
-            
-            # Detener música si está reproduciéndose
+            # Detener música antes de destruir ventana
             #self._stop_music()
             
-            # Ocultar ventana de personalización
-            self.root.withdraw()
+            # Destruir ventana de personalización
+            self.root.destroy()
             
-            # ✅ CREAR NUEVA VENTANA ROOT PARA EL MENÚ (no Toplevel)
+            # Crear nueva ventana root para el menú
             menu_root = tk.Tk()
-            menu_root.title("Avatars VS Rooks - Menú")
             
-            # Crear instancia del menú pasando el username
-            menu_app = Menu(menu_root, username=username)
+            # Importar Menu
+            from Menu import Menu
             
-            # Cuando se cierre el menú, cerrar personalización también
-            def on_menu_close():
-                menu_root.destroy()
-                self.root.destroy()
+            # Crear instancia del menú con el username
+            Menu(menu_root, username=username)
             
-            menu_root.protocol("WM_DELETE_WINDOW", on_menu_close)
-            
-            # NO destruir personalización todavía, dejar que el menú tome control
-            # El menú se encargará de todo
+            # Iniciar mainloop del menú
+            menu_root.mainloop()
             
         except Exception as e:
             import traceback
             traceback.print_exc()
-            self.root.deiconify()
-            messagebox.showerror("Error", f"No se pudo abrir el menú:\n{e}")
+            messagebox.showerror("Error", f"No se pudo completar la operación:\n{e}")
     
     def _crear_panel_preview(self, parent):
         """Crea el panel derecho con el preview del juego."""

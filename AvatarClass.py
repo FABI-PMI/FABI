@@ -224,7 +224,7 @@ class GestorAvatares:
                 "spawn_max": 12.0,
                 "probabilidades": [0.4, 0.3, 0.2, 0.1]
             },
-            "DIFICIL": {
+            "DIFÍCIL": {
                 "lambda": 0.20,
                 "spawn_min": 3.0,
                 "spawn_max": 10.0,

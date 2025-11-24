@@ -4,34 +4,39 @@ Muestra splash screen y luego el sistema de login
 """
 import tkinter as tk
 from SplashScreen import SplashScreen
-from Login import LoginApp
 
 
 def main():
-    # Crear ventana raíz (permanece oculta)
-    root = tk.Tk()
-    root.withdraw()
+    # Crear ventana raíz temporal solo para el splash
+    splash_root = tk.Tk()
+    splash_root.withdraw()
     
     # Mostrar splash screen
-    splash = SplashScreen(root, logo_path="Logo.jpg", duration=3000)
+    splash = SplashScreen(splash_root, logo_path="Logo.jpg", duration=3000)
     
     def mostrar_login():
         """Se ejecuta después de que el splash se cierra"""
-        # Crear ventana de login
-        login_window = tk.Toplevel(root)
+        # Destruir la ventana del splash
+        splash_root.destroy()
         
-        # Iniciar el login (sin callback, solo pasando la ventana)
-        app = LoginApp(login_window)
+        # Crear nueva ventana raíz para el login
+        login_root = tk.Tk()
         
-        # Si el usuario cierra la ventana de login
-        login_window.protocol("WM_DELETE_WINDOW", lambda: [login_window.destroy(), root.quit()])
+        # Importar LoginApp aquí para evitar problemas de importación circular
+        from Login import LoginApp
+        
+        # Iniciar el login con la nueva ventana raíz
+        app = LoginApp(login_root)
+        
+        # Iniciar el loop de la ventana de login
+        login_root.mainloop()
     
     # Programar que el login aparezca después del splash (3 segundos)
-    root.after(3000, mostrar_login)
+    splash_root.after(3000, mostrar_login)
     
-    # Iniciar el loop principal
-    root.mainloop()
+    # Iniciar el loop del splash
+    splash_root.mainloop()
 
 
 if __name__ == "__main__":
-    main() 
+    main()

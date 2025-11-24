@@ -1,7 +1,7 @@
 import tkinter as tk
 
 class Menu:
-    def __init__(self, root):  
+    def __init__(self, root, username=None):  
         self.root = root  
         self.username = username  # Guardar username para pasarlo al juego
         self.nivel_seleccionado = "FACIL"  # Nivel por defecto
@@ -240,6 +240,7 @@ está en tus manos.
     #Eleccion de Nivel
     def NivelDificil(self): 
         nivel = "DIFÍCIL"    
+        self.nivel_seleccionado = nivel
         print(f"Dificultad {nivel} activada")      
         self.mostrar_frecuencias()                    
         self.abrir_principal()                        
@@ -247,6 +248,7 @@ está en tus manos.
 
     def NivelMedio(self): 
         nivel = "MEDIO"     
+        self.nivel_seleccionado = nivel
         print(f"Dificultad {nivel} activada")      
         self.mostrar_frecuencias()                    
         self.abrir_principal()                        
@@ -254,6 +256,7 @@ está en tus manos.
 
     def NivelFacil(self):
         nivel = "FACIL"                             
+        self.nivel_seleccionado = nivel
         print(f"Dificultad {nivel} activada")      
         self.mostrar_frecuencias()                    
         self.abrir_principal()                        

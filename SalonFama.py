@@ -4,12 +4,14 @@ from PIL import Image, ImageTk, ImageDraw
 import io
 import base64
 import os
+import json
 from Login import cargar_usuarios
+from social_media_poster import SocialMediaPoster
 
 class SalonFama:
     def __init__(self, root, top_limit=10):
         self.root = root
-        self.top_limit = top_limit  # Variable para cambiar entre top 5, top 10, etc.
+        self.top_limit = top_limit
         self.root.title(f"Salón de la Fama")
         
         # Configuración de ventana
@@ -40,6 +42,9 @@ class SalonFama:
         # Referencias de imágenes
         self._logo_img = None
         self._foto_perfil_imgs = []
+        
+        # Inicializar poster de redes sociales
+        self.social_poster = SocialMediaPoster()
         
         self.crear_interfaz()
 
@@ -130,13 +135,74 @@ class SalonFama:
                 img = Image.open(io.BytesIO(img_data))
                 return self._circularize(img, size)
             else:
-                # Imagen por defecto (círculo gris)
                 img = Image.new('RGBA', size, (229, 231, 235, 255))
                 return self._circularize(img, size)
         except Exception as e:
             print(f"Error cargando foto: {e}")
             img = Image.new('RGBA', size, (229, 231, 235, 255))
             return self._circularize(img, size)
+
+    def verificar_y_publicar_cambios(self):
+        """Verifica si hubo cambios en el ranking y publica automáticamente"""
+        usuarios_actuales = self.obtener_top_usuarios()
+        
+        # Archivo para guardar el último ranking publicado
+        ranking_file = "ultimo_ranking_publicado.json"
+        
+        try:
+            with open(ranking_file, 'r', encoding='utf-8') as f:
+                ranking_anterior = json.load(f)
+        except:
+            ranking_anterior = []
+        
+        # Crear representación del ranking actual (top 10)
+        ranking_nuevo = [(u, d.get('pts', 0)) for u, d in usuarios_actuales[:10]]
+        
+        # Verificar si cambió el top 10
+        if ranking_nuevo != ranking_anterior:
+            print("\n" + "=" * 60)
+            print("🔄 ¡CAMBIOS DETECTADOS EN EL RANKING!")
+            print("=" * 60)
+            print("\n📊 Ranking anterior vs nuevo (Top 10):")
+            print("\nAnterior:")
+            for i, (u, pts) in enumerate(ranking_anterior[:10], 1):
+                print(f"  {i}. {u} - {pts} pts")
+            print("\nNuevo:")
+            for i, (u, pts) in enumerate(ranking_nuevo[:10], 1):
+                print(f"  {i}. {u} - {pts} pts")
+            
+            print("\n📢 Publicando automáticamente en Instagram...")
+            print("=" * 60)
+            
+            # Publicar en Instagram
+            try:
+                resultado = self.social_poster.publicar(usuarios_actuales)
+                
+                # Si la publicación fue exitosa, guardar el nuevo ranking
+                if resultado:
+                    with open(ranking_file, 'w', encoding='utf-8') as f:
+                        json.dump(ranking_nuevo, f, indent=2, ensure_ascii=False)
+                    print("\n✅ Ranking publicado en Instagram y guardado")
+                    print("=" * 60 + "\n")
+                else:
+                    print("\n⚠️ No se pudo publicar en Instagram")
+                    print("El ranking NO se marcó como publicado")
+                    print("=" * 60 + "\n")
+            except Exception as e:
+                print(f"\n❌ Error al publicar: {e}")
+                print("=" * 60 + "\n")
+            
+            # EJECUTAR X_APP AUTOMÁTICAMENTE
+            print("\n📢 Publicando automáticamente en Twitter/X...")
+            print("=" * 60)
+            try:
+                from X_APP import publicar_ranking_twitter
+                publicar_ranking_twitter()
+            except Exception as e:
+                print(f"\n❌ Error al publicar en Twitter: {e}")
+                print("=" * 60 + "\n")
+        else:
+            print("\nℹ️ No hay cambios en el ranking Top 10 desde la última publicación")
 
     def crear_contenido(self):
         # Logo grande arriba
@@ -146,9 +212,8 @@ class SalonFama:
         try:
             logo_path = os.path.join(os.path.dirname(__file__), "Logo.jpg")
             img = Image.open(logo_path).resize((200, 200), Image.LANCZOS)
-            self._logo_img = ImageTk.PhotoImage(img, master=self.root)  # ← agrega master
+            self._logo_img = ImageTk.PhotoImage(img, master=self.root)
             tk.Label(logo_container, image=self._logo_img, bg='#C5C5C5').pack()
-
         except Exception as e:
             print(f"No se pudo cargar Logo.jpg: {e}")
             tk.Label(logo_container, text="🏆", font=('Arial', 60), bg='#C5C5C5').pack()
@@ -166,6 +231,9 @@ class SalonFama:
                     font=('Segoe UI', 10),
                     fg=self.colores['texto_claro'], bg='#C5C5C5').pack(pady=20)
             return
+        
+        # VERIFICAR Y PUBLICAR CAMBIOS AUTOMÁTICAMENTE
+        self.verificar_y_publicar_cambios()
         
         # Mostrar cada usuario
         for i, (username, datos) in enumerate(usuarios_ordenados[:self.top_limit], 1):
@@ -223,10 +291,9 @@ class SalonFama:
         foto_frame.pack(side='left', padx=(0, 10))
         
         foto_img = self.cargar_foto_perfil(datos, size=(50, 50))
-        foto_photo = ImageTk.PhotoImage(foto_img, master=self.root)  # ← agrega master
-        self._foto_perfil_imgs.append(foto_photo)  # mantiene referencia
-
-                
+        foto_photo = ImageTk.PhotoImage(foto_img, master=self.root)
+        self._foto_perfil_imgs.append(foto_photo)
+        
         foto_label = tk.Label(foto_frame, image=foto_photo, bg='white')
         foto_label.image = foto_photo
         foto_label.pack()
@@ -268,10 +335,7 @@ class SalonFama:
 
 def main():
     root = tk.Tk()
-    
-    # Cambiar el número aquí para top 5, top 10, etc.
     app = SalonFama(root, top_limit=10)
-    
     root.mainloop()
 
 if __name__ == "__main__":
