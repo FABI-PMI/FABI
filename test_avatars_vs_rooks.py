@@ -240,16 +240,17 @@ class TestSistemaPuntajes(unittest.TestCase):
 
 def suite():
     """Crea la suite completa de pruebas"""
+    loader = unittest.TestLoader()
     test_suite = unittest.TestSuite()
     
     # Agregar pruebas de login
-    test_suite.addTest(unittest.makeSuite(TestSistemaLogin))
+    test_suite.addTests(loader.loadTestsFromTestCase(TestSistemaLogin))
     
     # Agregar pruebas de torres
-    test_suite.addTest(unittest.makeSuite(TestSistemaTorres))
+    test_suite.addTests(loader.loadTestsFromTestCase(TestSistemaTorres))
     
     # Agregar pruebas de puntajes
-    test_suite.addTest(unittest.makeSuite(TestSistemaPuntajes))
+    test_suite.addTests(loader.loadTestsFromTestCase(TestSistemaPuntajes))
     
     return test_suite
 
@@ -267,20 +268,6 @@ if __name__ == '__main__':
     # Ejecutar todas las pruebas
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite())
-    
-    # Resumen final
-    print("\n" + "=" * 80)
-    print("RESUMEN DE PRUEBAS")
-    print("=" * 80)
-    print(f"✅ Pruebas exitosas: {result.testsRun - len(result.failures) - len(result.errors)}")
-    print(f"❌ Pruebas fallidas: {len(result.failures)}")
-    print(f"⚠️  Errores: {len(result.errors)}")
-    print(f"📊 Total de pruebas: {result.testsRun}")
-    print("\n📋 Distribución:")
-    print("   - Sistema de Login:    3 pruebas")
-    print("   - Sistema de Torres:   3 pruebas")
-    print("   - Sistema de Puntajes: 3 pruebas")
-    print("=" * 80)
     
     # Salir con código apropiado
     sys.exit(0 if result.wasSuccessful() else 1)
